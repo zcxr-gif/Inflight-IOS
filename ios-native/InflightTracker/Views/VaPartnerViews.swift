@@ -55,7 +55,7 @@ struct VaLogoMark: View {
                     .scaledToFit()
                     .padding(side * 0.08)
             } else {
-                Text(monogram)
+                Text(L(monogram))
                     .font(.system(size: side * 0.42, weight: .bold, design: .rounded))
                     .foregroundStyle(theme.onAccent)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -115,19 +115,19 @@ struct VaPartnerLine: View {
                     line(partner)
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel(accessibilityLabel(for: partner))
+                .accessibilityLabel(L(accessibilityLabel(for: partner)))
                 .accessibilityHint("Opens this virtual airline.")
             } else {
                 line(partner)
                     .accessibilityElement(children: .combine)
-                    .accessibilityLabel(accessibilityLabel(for: partner))
+                    .accessibilityLabel(L(accessibilityLabel(for: partner)))
             }
         }
     }
 
     private func line(_ partner: VaPartner) -> some View {
         HStack(spacing: 6) {
-            Text(kicker(for: partner.basis))
+            Text(L(kicker(for: partner.basis)))
                 .font(.system(size: 8.5, weight: .bold))
                 .tracking(0.9)
                 .foregroundStyle(theme.textDim)
@@ -141,7 +141,7 @@ struct VaPartnerLine: View {
             // arrive together as the one thing they describe.
             VaLogoMark(ad: partner.ad, side: 16)
 
-            Text(partner.ad.name)
+            Text(L(partner.ad.name))
                 .font(.system(size: 11, weight: .bold, design: .rounded))
                 .foregroundStyle(theme.textPrimary)
                 .flightInfoLine(minimumScale: 0.7)
@@ -267,7 +267,7 @@ struct VaBadgeStrip: View {
             VaLogoMark(ad: ad, side: 26)
 
             VStack(alignment: .leading, spacing: 1) {
-                Text(ad.name)
+                Text(L(ad.name))
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(theme.textPrimary)
                     .flightInfoLine(minimumScale: 0.75)
@@ -363,7 +363,7 @@ struct VaBadgePicker: View {
             HStack(spacing: 10) {
                 VaLogoMark(ad: ad, side: 26)
 
-                Text(ad.name)
+                Text(L(ad.name))
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(theme.textPrimary)
                     .flightInfoLine(minimumScale: 0.75)
@@ -382,8 +382,8 @@ struct VaBadgePicker: View {
         .buttonStyle(.plain)
         .disabled(isBlocked)
         .opacity(isBlocked ? 0.45 : 1)
-        .accessibilityLabel(ad.name)
-        .accessibilityValue(isOn ? "Worn" : "Not worn")
+        .accessibilityLabel(L(ad.name))
+        .accessibilityValue(L(isOn ? "Worn" : "Not worn"))
     }
 
     private func toggle(_ ad: VaAd) {
@@ -397,7 +397,7 @@ struct VaBadgePicker: View {
     }
 
     private func note(_ text: String) -> some View {
-        Text(text)
+        Text(L(text))
             .font(.system(size: 11, weight: .medium))
             .foregroundStyle(theme.textDim)
             .fixedSize(horizontal: false, vertical: true)
@@ -452,11 +452,11 @@ struct AirportPartnersSection: View {
 
                 PanelDivider()
 
-                Text("""
+                Text(L("""
                 Virtual airlines — groups of Infinite Flight pilots who fly \
                 together — that call \(icao) a hub. Not real airlines, and not \
                 affiliated with any.
-                """)
+                """))
                     .font(.system(size: 10.5, weight: .medium))
                     .foregroundStyle(theme.textDim)
                     .fixedSize(horizontal: false, vertical: true)
@@ -475,7 +475,7 @@ struct AirportPartnersSection: View {
             // of, and a column of logos is what makes six rows scannable.
             VaLogoMark(ad: ad, side: 26)
 
-            Text(ad.name)
+            Text(L(ad.name))
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(theme.textPrimary)
                 .flightInfoLine(minimumScale: 0.75)
@@ -582,11 +582,11 @@ struct VaDetailSheet: View {
 
     private var identity: some View {
         PanelSection(title: "PARTNER") {
-            Text("""
+            Text(L("""
             A group of Infinite Flight pilots who fly together in the \
             simulator. Not a real airline, and not affiliated with one — \
             including whichever one it may be named after.
-            """)
+            """))
                 .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(theme.textDim)
                 .fixedSize(horizontal: false, vertical: true)
@@ -682,14 +682,14 @@ struct VaDetailSheet: View {
 
     private func fleetRow(_ flight: Flight) -> some View {
         HStack(spacing: 10) {
-            Text(flight.displayName)
+            Text(L(flight.displayName))
                 .font(.system(size: 12.5, weight: .semibold, design: .rounded))
                 .foregroundStyle(theme.textPrimary)
                 .flightInfoLine(minimumScale: 0.75)
 
             Spacer(minLength: 8)
 
-            Text(route(of: flight))
+            Text(L(route(of: flight)))
                 .font(.system(size: 10.5, weight: .semibold, design: .monospaced))
                 .foregroundStyle(theme.textDim)
                 .fixedSize()
@@ -728,9 +728,9 @@ struct VaDetailSheet: View {
                             symbol: isPinned ? "square.grid.2x2.fill" : "square.grid.2x2"
                         )
 
-                        Text(isPinned
+                        Text(L(isPinned
                              ? "The Virtual airline widget is showing \(ad.name)."
-                             : "Puts this VA's mark, and who is flying for it right now, on the Virtual airline widget.")
+                             : "Puts this VA's mark, and who is flying for it right now, on the Virtual airline widget."))
                             .font(.system(size: 10.5, weight: .medium))
                             .foregroundStyle(theme.textDim)
                             .padding(.leading, 30)
@@ -762,7 +762,7 @@ struct VaDetailSheet: View {
         if !ad.description.isEmpty || !ad.tags.isEmpty {
             PanelSection(title: "ABOUT") {
                 if !ad.description.isEmpty {
-                    Text(ad.description)
+                    Text(L(ad.description))
                         .font(.system(size: 12.5, weight: .medium))
                         .foregroundStyle(theme.textPrimary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -774,7 +774,7 @@ struct VaDetailSheet: View {
                 if !ad.tags.isEmpty {
                     if !ad.description.isEmpty { PanelDivider() }
 
-                    Text(ad.tags.prefix(8).joined(separator: " · "))
+                    Text(L(ad.tags.prefix(8).joined(separator: " · ")))
                         .font(.system(size: 10.5, weight: .semibold))
                         .foregroundStyle(theme.textDim)
                         .fixedSize(horizontal: false, vertical: true)
@@ -829,14 +829,14 @@ struct VaDetailSheet: View {
 
     private func detailRow(title: String, detail: String) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
-            Text(title)
+            Text(L(title))
                 .font(.system(size: 12.5, weight: .semibold))
                 .foregroundStyle(theme.textPrimary)
                 .fixedSize()
 
             Spacer(minLength: 8)
 
-            Text(detail)
+            Text(L(detail))
                 .font(.system(size: 11.5, weight: .medium))
                 .foregroundStyle(theme.textDim)
                 .multilineTextAlignment(.trailing)

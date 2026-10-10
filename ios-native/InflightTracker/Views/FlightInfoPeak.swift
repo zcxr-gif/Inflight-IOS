@@ -191,7 +191,7 @@ struct FlightInfoPeak: View {
         HStack(alignment: .center, spacing: 12) {
             VStack(alignment: .leading, spacing: 5) {
                 HStack(spacing: 8) {
-                    Text(flight.displayName)
+                    Text(L(flight.displayName))
                         .font(.system(size: 19, weight: .heavy, design: .rounded))
                         .foregroundStyle(theme.textPrimary)
                         .flightInfoLine(minimumScale: 0.6)
@@ -231,7 +231,7 @@ struct FlightInfoPeak: View {
                 // half of the line somebody is actually asking about; the tail
                 // follows it, and lands a second later than the rest of the
                 // window does.
-                Text(tailLine)
+                Text(L(tailLine))
                     .font(.system(size: 10.5, weight: .semibold, design: .monospaced))
                     .foregroundStyle(theme.textDim)
                     .flightInfoLine(minimumScale: 0.75)

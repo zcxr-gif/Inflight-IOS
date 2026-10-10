@@ -156,7 +156,7 @@ private struct HomeFlightView: View {
     private func small(_ flight: WidgetFlight) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .top) {
-                Text(flight.callsign)
+                Text(L(flight.callsign))
                     .font(WidgetType.title(13))
                     .foregroundStyle(WidgetPalette.text)
                     .flightInfoWidgetLine()
@@ -180,7 +180,7 @@ private struct HomeFlightView: View {
 
             VStack(alignment: .leading, spacing: 1) {
                 countdown(flight, size: 14)
-                Text(footnote(flight))
+                Text(L(footnote(flight)))
                     .font(WidgetType.caption(9))
                     .foregroundStyle(WidgetPalette.dim)
                     .flightInfoWidgetLine()
@@ -194,11 +194,11 @@ private struct HomeFlightView: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(flight.callsign)
+                    Text(L(flight.callsign))
                         .font(WidgetType.title(15))
                         .foregroundStyle(WidgetPalette.text)
                         .flightInfoWidgetLine()
-                    Text(descriptor(flight))
+                    Text(L(descriptor(flight)))
                         .font(WidgetType.caption(10))
                         .foregroundStyle(WidgetPalette.secondary)
                         .flightInfoWidgetLine()
@@ -222,7 +222,7 @@ private struct HomeFlightView: View {
             HStack(alignment: .bottom) {
                 VStack(alignment: .leading, spacing: 1) {
                     countdown(flight, size: 15)
-                    Text(footnote(flight))
+                    Text(L(footnote(flight)))
                         .font(WidgetType.caption(9.5))
                         .foregroundStyle(WidgetPalette.dim)
                         .flightInfoWidgetLine()
@@ -241,11 +241,11 @@ private struct HomeFlightView: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(flight.callsign)
+                    Text(L(flight.callsign))
                         .font(WidgetType.title(19))
                         .foregroundStyle(WidgetPalette.text)
                         .flightInfoWidgetLine()
-                    Text(descriptor(flight))
+                    Text(L(descriptor(flight)))
                         .font(WidgetType.caption(12))
                         .foregroundStyle(WidgetPalette.secondary)
                         .flightInfoWidgetLine()
@@ -290,7 +290,7 @@ private struct HomeFlightView: View {
                 HStack(alignment: .bottom) {
                     VStack(alignment: .leading, spacing: 1) {
                         countdown(flight, size: 19)
-                        Text(footnote(flight))
+                        Text(L(footnote(flight)))
                             .font(WidgetType.caption(11))
                             .foregroundStyle(WidgetPalette.dim)
                             .flightInfoWidgetLine()
@@ -323,7 +323,7 @@ private struct HomeFlightView: View {
                     .foregroundStyle(WidgetPalette.secondary)
             }
         } else {
-            Text(flight.isAirborne ? "Arriving" : flight.phaseLabel)
+            Text(L(flight.isAirborne ? "Arriving" : flight.phaseLabel))
                 .font(WidgetType.readout(size))
                 .foregroundStyle(WidgetPalette.text)
                 .flightInfoWidgetLine()
@@ -398,7 +398,7 @@ private struct AccessoryFlightView: View {
                     HStack(spacing: 4) {
                         Image(systemName: "airplane")
                             .font(.system(size: 10, weight: .bold))
-                        Text(flight.callsign)
+                        Text(L(flight.callsign))
                             .font(.system(size: 13, weight: .semibold, design: .rounded))
                             .flightInfoWidgetLine()
                     }
@@ -409,7 +409,7 @@ private struct AccessoryFlightView: View {
                         Text(timerInterval: entry.date...eta, pauseTime: nil, countsDown: true, showsHours: true)
                             .font(.system(size: 12, weight: .semibold, design: .rounded).monospacedDigit())
                     } else {
-                        Text(flight.phaseLabel)
+                        Text(L(flight.phaseLabel))
                             .font(.system(size: 12, weight: .medium, design: .rounded))
                     }
                 }

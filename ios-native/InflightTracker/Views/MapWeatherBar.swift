@@ -22,12 +22,12 @@ struct MapWeatherBar: View {
                 .foregroundStyle(theme.textPrimary)
 
             if let message = model.unavailable {
-                Text(message)
+                Text(L(message))
                     .font(.system(size: 10.5, weight: .medium))
                     .foregroundStyle(theme.textSecondary)
                     .flightInfoLine(minimumScale: 0.7)
             } else {
-                Text(label)
+                Text(L(label))
                     .font(.system(size: 11, weight: .semibold, design: .monospaced))
                     .foregroundStyle(theme.textPrimary)
                     .fixedSize()
@@ -124,6 +124,6 @@ struct MapWeatherBar: View {
         }
         .frame(width: 96, height: 18)
         .accessibilityLabel("Radar frame")
-        .accessibilityValue(label)
+        .accessibilityValue(L(label))
     }
 }

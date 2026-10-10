@@ -236,7 +236,7 @@ struct GateMapPicker: View {
                     .tracking(0.8)
                     .foregroundStyle(theme.textPrimary)
 
-                Text(subtitle)
+                Text(L(subtitle))
                     .font(.system(size: 10, weight: .medium))
                     .foregroundStyle(theme.textDim)
                     .flightInfoLine(minimumScale: 0.8)
@@ -389,7 +389,7 @@ struct GateMapPicker: View {
             }
             focusToken += 1
         } label: {
-            Text(ref)
+            Text(L(ref))
                 .font(.system(size: 12.5, weight: .bold, design: .monospaced))
                 .foregroundStyle(isPicked ? theme.onAccent : theme.textSecondary)
                 .padding(.horizontal, 11)
@@ -483,12 +483,12 @@ struct GateMapPicker: View {
     private var footer: some View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
-                Text(pick.map { "\(role.verb) \($0.ref)" } ?? "Pick a stand")
+                Text(L(pick.map { "\(role.verb) \($0.ref)" } ?? "Pick a stand"))
                     .font(.system(size: 14, weight: .bold))
                     .foregroundStyle(theme.textPrimary)
                     .flightInfoLine(minimumScale: 0.8)
 
-                Text(footnote)
+                Text(L(footnote))
                     .font(.system(size: 10.5, weight: .medium))
                     .foregroundStyle(theme.textDim)
                     .fixedSize(horizontal: false, vertical: true)

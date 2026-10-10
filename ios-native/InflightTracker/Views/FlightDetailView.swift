@@ -1504,7 +1504,7 @@ struct FlightDetailView: View {
     ) -> some View {
         VStack(alignment: .leading, spacing: 7) {
             HStack(spacing: 6) {
-                Text(title)
+                Text(L(title))
                     .font(.system(size: 9, weight: .bold))
                     .tracking(0.5)
                     .foregroundStyle(theme.textSecondary)
@@ -1518,13 +1518,13 @@ struct FlightDetailView: View {
             }
 
             HStack(alignment: .firstTextBaseline, spacing: 3) {
-                Text(value)
+                Text(L(value))
                     .font(.system(size: 17, weight: .semibold, design: .monospaced))
                     .foregroundStyle(theme.textPrimary)
                     .flightInfoLine(minimumScale: 0.6)
                     .motionFigure(figure)
 
-                Text(unit)
+                Text(L(unit))
                     .font(.system(size: 9, weight: .medium))
                     .foregroundStyle(theme.textDim)
                     .fixedSize()

@@ -14,7 +14,7 @@ struct SkyChip: View {
                 .font(.system(size: 10, weight: .bold))
                 .foregroundStyle(theme.textSecondary)
 
-            Text(text)
+            Text(L(text))
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(theme.textPrimary)
                 .flightInfoLine(minimumScale: 0.7)
@@ -113,12 +113,12 @@ struct SkyNoticeCard: View {
                     .font(.system(size: 26, weight: .semibold))
                     .foregroundStyle(theme.textSecondary)
 
-                Text(notice.title)
+                Text(L(notice.title))
                     .font(.system(size: 16, weight: .bold))
                     .foregroundStyle(theme.textPrimary)
                     .multilineTextAlignment(.center)
 
-                Text(notice.detail)
+                Text(L(notice.detail))
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(theme.textSecondary)
                     .multilineTextAlignment(.center)

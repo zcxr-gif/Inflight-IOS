@@ -183,9 +183,9 @@ struct AirportPanel: View {
                                 symbol: isPinned ? "square.grid.2x2.fill" : "square.grid.2x2"
                             )
 
-                            Text(isPinned
+                            Text(L(isPinned
                                  ? "The Airport widget is showing \(airport.icao)."
-                                 : "Puts this field's traffic, ATC and weather on the Airport widget.")
+                                 : "Puts this field's traffic, ATC and weather on the Airport widget."))
                                 .font(.system(size: 10.5, weight: .medium))
                                 .foregroundStyle(theme.textDim)
                                 .padding(.leading, 30)
@@ -297,7 +297,7 @@ struct AirportPanel: View {
                     // The name rides the photo rather than repeating under it —
                     // the header above is the ICAO, and this is the one place
                     // the field's full name is worth the room.
-                    Text(airport.name)
+                    Text(L(airport.name))
                         .font(.system(size: 13, weight: .bold, design: .rounded))
                         .foregroundStyle(.white)
                         .shadow(color: .black.opacity(0.7), radius: 3, y: 1)
@@ -313,7 +313,7 @@ struct AirportPanel: View {
     /// of entries whose country didn't resolve, rather than holding a gap open
     /// for a placeholder.
     private var flag: some View {
-        Text(airport.flag)
+        Text(L(airport.flag))
             .font(.system(size: 22))
             .accessibilityHidden(true)
     }
@@ -352,9 +352,9 @@ struct AirportPanel: View {
                     raw(metar)
                 }
             } else {
-                Text(hasWeatherAnswer
+                Text(L(hasWeatherAnswer
                      ? "No report filed for \(airport.icao)."
-                     : "Checking for a report…")
+                     : "Checking for a report…"))
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(theme.textDim)
                     .padding(.horizontal, 14)
@@ -371,12 +371,12 @@ struct AirportPanel: View {
                 .frame(width: 30)
 
             VStack(alignment: .leading, spacing: 3) {
-                Text(metar.conditionLabel)
+                Text(L(metar.conditionLabel))
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(theme.textPrimary)
                     .flightInfoLine(minimumScale: 0.8)
 
-                Text(conditions(metar))
+                Text(L(conditions(metar)))
                     .font(.system(size: 10.5, weight: .medium))
                     .foregroundStyle(theme.textDim)
                     .flightInfoLine(minimumScale: 0.75)
@@ -384,7 +384,7 @@ struct AirportPanel: View {
 
             Spacer(minLength: 8)
 
-            Text(metar.temperatureLabel(in: weatherPreferences.temperatureUnit))
+            Text(L(metar.temperatureLabel(in: weatherPreferences.temperatureUnit)))
                 .font(.system(size: 24, weight: .bold, design: .rounded))
                 .foregroundStyle(theme.textPrimary)
                 .fixedSize()
@@ -399,7 +399,7 @@ struct AirportPanel: View {
         let category = metar.flightCategory
 
         return HStack(spacing: 10) {
-            Text(category.rawValue)
+            Text(L(category.rawValue))
                 .font(.system(size: 11, weight: .heavy, design: .rounded))
                 .foregroundStyle(Color(uiColor: category.colour))
                 .padding(.horizontal, 8)
@@ -408,7 +408,7 @@ struct AirportPanel: View {
                     Capsule().fill(Color(uiColor: category.colour).opacity(0.16))
                 }
 
-            Text(category.detail)
+            Text(L(category.detail))
                 .font(.system(size: 10.5, weight: .medium))
                 .foregroundStyle(theme.textDim)
                 .fixedSize(horizontal: false, vertical: true)
@@ -424,7 +424,7 @@ struct AirportPanel: View {
     /// remarks — and anyone reading a field's weather in an ICAO panel can read
     /// a METAR.
     private func raw(_ metar: Metar) -> some View {
-        Text(metar.raw)
+        Text(L(metar.raw))
             .font(.system(size: 9.5, weight: .medium, design: .monospaced))
             .foregroundStyle(theme.textDim)
             .fixedSize(horizontal: false, vertical: true)
@@ -606,7 +606,7 @@ struct AirportPanel: View {
 
                         if occupancy.unmatched > 0 {
                             PanelDivider()
-                            Text(standFootnote(occupancy))
+                            Text(L(standFootnote(occupancy)))
                                 .font(.system(size: 10.5, weight: .medium))
                                 .foregroundStyle(theme.textDim)
                                 .padding(.horizontal, 14)
@@ -707,12 +707,12 @@ private struct MovementRow: View {
                     .frame(width: 18)
 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(flight.displayName)
+                    Text(L(flight.displayName))
                         .font(.system(size: 14, weight: .semibold))
                         .foregroundStyle(theme.textPrimary)
                         .flightInfoLine(minimumScale: 0.8)
 
-                    Text(identity)
+                    Text(L(identity))
                         .font(.system(size: 10.5, weight: .medium))
                         .foregroundStyle(theme.textDim)
                         .flightInfoLine(minimumScale: 0.75)
@@ -721,12 +721,12 @@ private struct MovementRow: View {
                 Spacer(minLength: 8)
 
                 VStack(alignment: .trailing, spacing: 2) {
-                    Text(headline)
+                    Text(L(headline))
                         .font(.system(size: 13, weight: .bold, design: .rounded))
                         .foregroundStyle(theme.textPrimary)
                         .fixedSize()
 
-                    Text(detail)
+                    Text(L(detail))
                         .font(.system(size: 10, weight: .medium))
                         .foregroundStyle(theme.textDim)
                         .fixedSize()
@@ -782,18 +782,18 @@ private struct GateRow: View {
         Button(action: action) {
             HStack(spacing: 10) {
                 // The stand's own name, set as the label a jetway carries.
-                Text(spot.gate.ref)
+                Text(L(spot.gate.ref))
                     .font(.system(size: 12.5, weight: .bold, design: .monospaced))
                     .foregroundStyle(theme.textPrimary)
                     .frame(minWidth: 42, alignment: .leading)
 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(spot.flight.displayName)
+                    Text(L(spot.flight.displayName))
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(theme.textPrimary)
                         .flightInfoLine()
 
-                    Text(aircraftLine)
+                    Text(L(aircraftLine))
                         .font(.system(size: 10.5, weight: .medium))
                         .foregroundStyle(theme.textDim)
                         .flightInfoLine()

@@ -876,7 +876,7 @@ struct RealWorldTrafficSettingsPanel: View {
         VStack(alignment: .leading, spacing: 4) {
             PanelRowLabel(title: title, symbol: symbol)
 
-            Text(detail)
+            Text(L(detail))
                 .font(.system(size: 10.5, weight: .medium))
                 .foregroundStyle(theme.textDim)
                 .padding(.leading, 30)
@@ -975,13 +975,13 @@ struct AboutSettingsPanel: View {
 
     private func row(_ title: String, value: String) -> some View {
         HStack(spacing: 10) {
-            Text(title)
+            Text(L(title))
                 .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(theme.textSecondary)
 
             Spacer(minLength: 8)
 
-            Text(value)
+            Text(L(value))
                 .font(.system(size: 12, weight: .semibold, design: .monospaced))
                 .foregroundStyle(theme.textPrimary)
                 .flightInfoLine(minimumScale: 0.7)
@@ -993,7 +993,7 @@ struct AboutSettingsPanel: View {
     /// A paragraph in a section, for the places where the answer is a sentence
     /// rather than a control.
     private func note(_ text: String) -> some View {
-        Text(text)
+        Text(L(text))
             .font(.system(size: 11.5, weight: .medium))
             .foregroundStyle(theme.textSecondary)
             .fixedSize(horizontal: false, vertical: true)
@@ -1079,12 +1079,12 @@ struct GlobeChoiceRow: View {
                     }
 
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(title)
+                    Text(L(title))
                         .font(.system(size: 14, weight: .medium))
                         .foregroundStyle(theme.textPrimary)
                         .flightInfoLine(minimumScale: 0.8)
 
-                    Text(detail)
+                    Text(L(detail))
                         .font(.system(size: 10.5, weight: .medium))
                         .foregroundStyle(theme.textDim)
                         .fixedSize(horizontal: false, vertical: true)
@@ -1134,12 +1134,12 @@ struct ProUpsellRow: View {
                     .frame(width: 20)
 
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(feature.title)
+                    Text(L(feature.title))
                         .font(.system(size: 14, weight: .medium))
                         .foregroundStyle(theme.textPrimary)
                         .flightInfoLine(minimumScale: 0.8)
 
-                    Text(feature.detail)
+                    Text(L(feature.detail))
                         .font(.system(size: 10.5, weight: .medium))
                         .foregroundStyle(theme.textDim)
                         .fixedSize(horizontal: false, vertical: true)
@@ -1216,13 +1216,13 @@ struct SettingsChoiceRow: View {
                         // The picture is doing the glyph's job, so the title
                         // sits at the head of its own column rather than
                         // indented behind an icon that is no longer there.
-                        Text(title)
+                        Text(L(title))
                             .font(.system(size: 14, weight: .medium))
                             .foregroundStyle(theme.textPrimary)
                             .flightInfoLine(minimumScale: 0.8)
                     }
 
-                    Text(detail)
+                    Text(L(detail))
                         .font(.system(size: 10.5, weight: .medium))
                         .foregroundStyle(theme.textDim)
                         .padding(.leading, preview == nil ? 30 : 0)
@@ -1405,7 +1405,7 @@ struct ProPromoCard: View {
                 // still leave their titles on one left edge.
                 .frame(width: 18)
 
-            Text(feature.title)
+            Text(L(feature.title))
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(theme.textSecondary)
                 .flightInfoLine(minimumScale: 0.8)
@@ -1416,7 +1416,7 @@ struct ProPromoCard: View {
 
     private var footer: some View {
         HStack(spacing: 8) {
-            Text(price)
+            Text(L(price))
                 .font(.system(size: 11.5, weight: .medium))
                 .foregroundStyle(theme.textDim)
                 .flightInfoLine(minimumScale: 0.8)

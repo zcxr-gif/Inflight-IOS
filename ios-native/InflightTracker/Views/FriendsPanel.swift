@@ -225,7 +225,7 @@ struct FriendsPanel: View {
 
                             VStack(alignment: .leading, spacing: 3) {
                                 HStack(spacing: 5) {
-                                    Text(pilot.displayName)
+                                    Text(L(pilot.displayName))
                                         .font(.system(size: 14, weight: .semibold))
                                         .foregroundStyle(theme.textPrimary)
                                     if pilot.isPro {
@@ -235,7 +235,7 @@ struct FriendsPanel: View {
                                     }
                                 }
 
-                                Text(pilot.detail)
+                                Text(L(pilot.detail))
                                     .font(.system(size: 11, weight: .medium))
                                     .foregroundStyle(theme.textSecondary)
                                     .lineLimit(1)
@@ -285,9 +285,9 @@ struct FriendsPanel: View {
     private var permissionSection: some View {
         PanelSection(title: "NOTIFICATIONS ARE OFF") {
             VStack(alignment: .leading, spacing: 10) {
-                Text(push.authorization == .denied
+                Text(L(push.authorization == .denied
                      ? "Notifications were declined, so takeoffs can't be announced. Turning them back on lives in iOS Settings."
-                     : "Allow notifications and you'll be told the moment a watched pilot leaves the ground.")
+                     : "Allow notifications and you'll be told the moment a watched pilot leaves the ground."))
                     .font(.system(size: 11.5, weight: .medium))
                     .foregroundStyle(theme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -301,7 +301,7 @@ struct FriendsPanel: View {
                         push.requestAuthorization()
                     }
                 } label: {
-                    Text(push.authorization == .denied ? "Open Settings" : "Allow notifications")
+                    Text(L(push.authorization == .denied ? "Open Settings" : "Allow notifications"))
                         .font(.system(size: 13, weight: .bold, design: .rounded))
                         .foregroundStyle(theme.onAccent)
                         .frame(maxWidth: .infinity)
@@ -351,11 +351,11 @@ struct FriendsPanel: View {
                 }
 
                 if let problem = problem {
-                    Text(problem)
+                    Text(L(problem))
                         .font(.system(size: 10.5, weight: .medium))
                         .foregroundStyle(theme.textDim)
                 } else {
-                    Text(hint)
+                    Text(L(hint))
                         .font(.system(size: 10.5, weight: .medium))
                         .foregroundStyle(theme.textDim)
                         .fixedSize(horizontal: false, vertical: true)
@@ -531,12 +531,12 @@ private struct FriendRow: View {
                     statusDot
 
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(username)
+                        Text(L(username))
                             .font(.system(size: 14, weight: .semibold))
                             .foregroundStyle(theme.textPrimary)
                             .flightInfoLine(minimumScale: 0.8)
 
-                        Text(detail)
+                        Text(L(detail))
                             .font(.system(size: 10.5, weight: .medium))
                             .foregroundStyle(theme.textDim)
                             .flightInfoLine(minimumScale: 0.8)
@@ -569,7 +569,7 @@ private struct FriendRow: View {
                         .flightInfoSurface(theme, in: Circle(), interactive: true)
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel(isTracking ? "Stop the live banner" : "Show a live banner for this flight")
+                .accessibilityLabel(L(isTracking ? "Stop the live banner" : "Show a live banner for this flight"))
             }
 
             Button(action: onRemove) {
@@ -650,7 +650,7 @@ private struct AlsoFlyingRow: View {
                             .foregroundStyle(theme.textSecondary)
                             .flightInfoLine(minimumScale: 0.8)
 
-                        Text(detail)
+                        Text(L(detail))
                             .font(.system(size: 10.5, weight: .medium))
                             .foregroundStyle(theme.textDim)
                             .flightInfoLine(minimumScale: 0.8)
@@ -672,7 +672,7 @@ private struct AlsoFlyingRow: View {
                     }
             }
             .buttonStyle(.plain)
-            .accessibilityLabel(isTracking ? "Stop the live banner" : "Show a live banner for this flight")
+            .accessibilityLabel(L(isTracking ? "Stop the live banner" : "Show a live banner for this flight"))
         }
         .padding(.leading, 28)
         .padding(.trailing, 14)

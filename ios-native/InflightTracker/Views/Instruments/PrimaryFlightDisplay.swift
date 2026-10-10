@@ -82,7 +82,7 @@ struct PrimaryFlightDisplay: View {
         .background(InstrumentPalette.screen)
         .accessibilityElement()
         .accessibilityLabel("Primary flight display")
-        .accessibilityValue(accessibilitySummary)
+        .accessibilityValue(L(accessibilitySummary))
     }
 
     private var accessibilitySummary: String {

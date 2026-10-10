@@ -21,9 +21,9 @@ struct MeasureBar: View {
             if measurement.isComplete {
                 answer
             } else {
-                Text(measurement.start == nil
+                Text(L(measurement.start == nil
                      ? "Tap the map to start measuring"
-                     : "Tap again for the other end")
+                     : "Tap again for the other end"))
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(theme.textSecondary)
                     .flightInfoLine(minimumScale: 0.7)
@@ -66,12 +66,12 @@ struct MeasureBar: View {
 
     private var answer: some View {
         VStack(alignment: .leading, spacing: 1) {
-            Text(measurement.distanceLabel ?? "—")
+            Text(L(measurement.distanceLabel ?? "—"))
                 .font(.system(size: 12, weight: .bold, design: .monospaced))
                 .foregroundStyle(theme.textPrimary)
                 .flightInfoLine(minimumScale: 0.7)
 
-            Text(detail)
+            Text(L(detail))
                 .font(.system(size: 9.5, weight: .medium))
                 .foregroundStyle(theme.textDim)
                 .flightInfoLine(minimumScale: 0.7)

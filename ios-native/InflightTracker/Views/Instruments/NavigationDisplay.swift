@@ -122,7 +122,7 @@ struct NavigationDisplay: View {
         .background(InstrumentPalette.screen)
         .accessibilityElement()
         .accessibilityLabel("Navigation display")
-        .accessibilityValue(accessibilitySummary)
+        .accessibilityValue(L(accessibilitySummary))
     }
 
     private var accessibilitySummary: String {

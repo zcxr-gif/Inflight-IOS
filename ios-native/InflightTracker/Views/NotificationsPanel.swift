@@ -197,12 +197,12 @@ struct NotificationsPanel: View {
                 }
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(sampleTitle)
+                Text(L(sampleTitle))
                     .font(.system(size: 13, weight: .bold, design: .rounded))
                     .foregroundStyle(.white)
                     .flightInfoLine(minimumScale: 0.7)
 
-                Text(sampleBody)
+                Text(L(sampleBody))
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(.white.opacity(0.85))
                     .lineLimit(2)
@@ -277,9 +277,9 @@ struct NotificationsPanel: View {
                             symbol: "bell.badge"
                         )
 
-                        Text(push.authorization == .denied
+                        Text(L(push.authorization == .denied
                              ? "You said no to this once, and iOS will not ask twice — the switch lives in Settings now. Nothing below can arrive until it is on."
-                             : "Nothing on this screen can reach you until iOS is allowed to show a banner.")
+                             : "Nothing on this screen can reach you until iOS is allowed to show a banner."))
                             .font(.system(size: 10.5, weight: .medium))
                             .foregroundStyle(theme.textDim)
                             .padding(.leading, 30)
@@ -406,7 +406,7 @@ struct NotificationsPanel: View {
                 VStack(alignment: .leading, spacing: 4) {
                     PanelRowLabel(title: obstacle.title, symbol: obstacle.symbol)
 
-                    Text(obstacle.detail)
+                    Text(L(obstacle.detail))
                         .font(.system(size: 10.5, weight: .medium))
                         .foregroundStyle(theme.textDim)
                         .padding(.leading, 30)

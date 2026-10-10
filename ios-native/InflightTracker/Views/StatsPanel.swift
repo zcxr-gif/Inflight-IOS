@@ -31,7 +31,7 @@ struct StatsPanel: View {
             if pulse.total == 0 {
                 Spacer(minLength: 0)
 
-                Text(feed.status.isLive ? "Nothing to count yet" : feed.status.label)
+                Text(L(feed.status.isLive ? "Nothing to count yet" : feed.status.label))
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(theme.textSecondary)
 
@@ -112,7 +112,7 @@ struct StatsPanel: View {
     /// which is the one question a stat with no source always gets asked.
     private var header: some View {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
-            Text(Format.number(Double(pulse.total)))
+            Text(L(Format.number(Double(pulse.total))))
                 .font(.system(size: 14, weight: .heavy, design: .rounded))
                 .foregroundStyle(theme.textPrimary)
                 .motionFigure(Double(pulse.total))
@@ -129,7 +129,7 @@ struct StatsPanel: View {
                 .fill(feed.status.isLive ? theme.accent : theme.textDim)
                 .frame(width: 5, height: 5)
 
-            Text(feed.status.label.uppercased())
+            Text(L(feed.status.label.uppercased()))
                 .font(.system(size: 8.5, weight: .bold))
                 .tracking(0.6)
                 .foregroundStyle(theme.textDim)
@@ -155,13 +155,13 @@ struct StatsPanel: View {
     /// them so the two read as the same thing.
     private func figure(_ value: String, of number: Double, label: String) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(value)
+            Text(L(value))
                 .font(.system(size: 22, weight: .heavy, design: .rounded))
                 .foregroundStyle(theme.textPrimary)
                 .flightInfoLine(minimumScale: 0.5)
                 .motionFigure(number)
 
-            Text(label)
+            Text(L(label))
                 .font(.system(size: 8.5, weight: .bold))
                 .tracking(0.6)
                 .foregroundStyle(theme.textSecondary)

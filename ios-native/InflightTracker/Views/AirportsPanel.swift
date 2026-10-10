@@ -74,13 +74,13 @@ struct AirportsPanel: View {
             HStack(spacing: 10) {
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 7) {
-                        Text(entry.airport.icao)
+                        Text(L(entry.airport.icao))
                             .font(.system(size: 16, weight: .heavy, design: .rounded))
                             .foregroundStyle(theme.textPrimary)
                             .fixedSize()
 
                         if !entry.airport.flag.isEmpty {
-                            Text(entry.airport.flag).font(.system(size: 11))
+                            Text(L(entry.airport.flag)).font(.system(size: 11))
                         }
 
                         // Worth marking rather than leaving to be discovered by
@@ -91,7 +91,7 @@ struct AirportsPanel: View {
                         }
                     }
 
-                    Text(entry.airport.name)
+                    Text(L(entry.airport.name))
                         .font(.system(size: 10.5, weight: .medium))
                         .foregroundStyle(theme.textDim)
                         .flightInfoLine(minimumScale: 0.75)

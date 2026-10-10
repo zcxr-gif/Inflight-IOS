@@ -106,7 +106,7 @@ struct FiledRouteCard: View {
     private func chip(for waypoint: PlanWaypoint) -> some View {
         let isNext = waypoint.id == leg?.waypoint.id
 
-        return Text(waypoint.name)
+        return Text(L(waypoint.name))
             .font(.system(size: 11, weight: .semibold, design: .monospaced))
             .foregroundStyle(isNext ? theme.onAccent : theme.textSecondary)
             .padding(.horizontal, 8)

@@ -139,7 +139,7 @@ struct ProfileSetupView: View {
         }
         .padding(.horizontal, 2)
         .motion(Motion.content, value: step)
-        .accessibilityLabel(step.subtitle)
+        .accessibilityLabel(L(step.subtitle))
     }
 
     // MARK: - Step one
@@ -179,7 +179,7 @@ struct ProfileSetupView: View {
                 .padding(.vertical, 11)
                 .flightInfoSurface(theme, radius: theme.radiusSmall)
 
-                Text(handleHint)
+                Text(L(handleHint))
                     .font(.system(size: 10.5, weight: .medium))
                     .foregroundStyle(theme.textDim)
                     .fixedSize(horizontal: false, vertical: true)
@@ -254,7 +254,7 @@ struct ProfileSetupView: View {
                         .onSubmit { Task { await check() } }
 
                     Button { Task { await check() } } label: {
-                        Text(sync == .checking ? "Checking…" : "Check")
+                        Text(L(sync == .checking ? "Checking…" : "Check"))
                             .font(.system(size: 12, weight: .bold, design: .rounded))
                             .foregroundStyle(theme.onAccent)
                             .padding(.horizontal, 12)
@@ -311,7 +311,7 @@ struct ProfileSetupView: View {
                         .font(.system(size: 12.5, weight: .bold))
                         .foregroundStyle(theme.textPrimary)
 
-                    Text(foundLine(stats))
+                    Text(L(foundLine(stats)))
                         .font(.system(size: 10.5, weight: .medium))
                         .foregroundStyle(theme.textDim)
                         .fixedSize(horizontal: false, vertical: true)
@@ -372,8 +372,8 @@ struct ProfileSetupView: View {
                                 } else {
                                     Image(systemName: "photo").font(.system(size: 11, weight: .bold))
                                 }
-                                Text(busy ? "Uploading…"
-                                     : draft.avatarPath == nil ? "Choose a picture" : "Change it")
+                                Text(L(busy ? "Uploading…"
+                                     : draft.avatarPath == nil ? "Choose a picture" : "Change it"))
                                     .font(.system(size: 12, weight: .bold, design: .rounded))
                             }
                             .foregroundStyle(theme.onAccent)
@@ -433,7 +433,7 @@ struct ProfileSetupView: View {
                                 }
                         }
                         .buttonStyle(.plain)
-                        .accessibilityLabel(preset.label)
+                        .accessibilityLabel(L(preset.label))
                     }
                 }
                 .padding(.vertical, 2)
@@ -451,7 +451,7 @@ struct ProfileSetupView: View {
             } label: {
                 HStack(spacing: 8) {
                     if store.isSaving { ProgressView().tint(theme.onAccent) }
-                    Text(primaryLabel)
+                    Text(L(primaryLabel))
                         .font(.system(size: 14, weight: .bold, design: .rounded))
                 }
                 .foregroundStyle(theme.onAccent)
@@ -475,7 +475,7 @@ struct ProfileSetupView: View {
                 Button {
                     Task { await skip() }
                 } label: {
-                    Text(step == .picture ? "Not now" : "Skip for now")
+                    Text(L(step == .picture ? "Not now" : "Skip for now"))
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(theme.textDim)
                 }
@@ -665,7 +665,7 @@ struct ProfileSetupView: View {
         HStack(alignment: .top, spacing: 8) {
             Image(systemName: isProblem ? "exclamationmark.triangle" : "info.circle")
                 .font(.system(size: 11, weight: .bold))
-            Text(text)
+            Text(L(text))
                 .font(.system(size: 11.5, weight: .medium))
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)

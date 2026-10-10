@@ -69,7 +69,7 @@ struct PilotAvatar: View {
                 // Initials on the accent rather than a grey silhouette: a
                 // profile with no picture should still look like somebody
                 // rather than like a missing asset.
-                Text(initials)
+                Text(L(initials))
                     .font(.system(size: side * 0.38, weight: .bold, design: .rounded))
                     .foregroundStyle(theme.onAccent)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -185,7 +185,7 @@ struct PilotRow: View {
 
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 5) {
-                        Text(pilot.displayName)
+                        Text(L(pilot.displayName))
                             .font(.system(size: 14, weight: .semibold))
                             .foregroundStyle(theme.textPrimary)
                             .flightInfoLine(minimumScale: 0.8)
@@ -193,7 +193,7 @@ struct PilotRow: View {
                         if pilot.isPro { ProBadge() }
                     }
 
-                    Text(detail)
+                    Text(L(detail))
                         .font(.system(size: 10.5, weight: .medium))
                         .foregroundStyle(theme.textDim)
                         .flightInfoLine(minimumScale: 0.8)
@@ -260,7 +260,7 @@ struct PilotStrip: View {
                                 side: 46,
                                 isPro: pilot.isPro
                             )
-                            Text(pilot.displayName)
+                            Text(L(pilot.displayName))
                                 .font(.system(size: 9.5, weight: .semibold))
                                 .foregroundStyle(theme.textSecondary)
                                 .lineLimit(1)
@@ -302,10 +302,10 @@ struct PilotStat: View {
 
     private var content: some View {
         VStack(spacing: 2) {
-            Text(value)
+            Text(L(value))
                 .font(.system(size: 17, weight: .heavy, design: .rounded))
                 .foregroundStyle(theme.textPrimary)
-            Text(label)
+            Text(L(label))
                 .font(.system(size: 8.5, weight: .bold))
                 .tracking(0.7)
                 .foregroundStyle(theme.textDim)
@@ -350,7 +350,7 @@ struct BadgeChip: View {
                     .foregroundStyle(badge.earned ? theme.onAccent : theme.textDim)
             }
 
-            Text(badge.title)
+            Text(L(badge.title))
                 .font(.system(size: 9.5, weight: .semibold))
                 .foregroundStyle(badge.earned ? theme.textSecondary : theme.textDim)
                 .lineLimit(1)
@@ -364,9 +364,9 @@ struct BadgeChip: View {
         .frame(width: 74)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(
-            badge.earned
+            L(badge.earned
                 ? "\(badge.title), earned. \(badge.detail)"
-                : "\(badge.title), \(badge.progress) of \(badge.target). \(badge.detail)"
+                : "\(badge.title), \(badge.progress) of \(badge.target). \(badge.detail)")
         )
     }
 }
@@ -389,12 +389,12 @@ struct LogbookRow: View {
     var body: some View {
         HStack(spacing: 10) {
             VStack(alignment: .leading, spacing: 3) {
-                Text(entry.route)
+                Text(L(entry.route))
                     .font(.system(size: 13.5, weight: .semibold, design: .rounded))
                     .foregroundStyle(theme.textPrimary)
                     .flightInfoLine(minimumScale: 0.8)
 
-                Text(subtitle)
+                Text(L(subtitle))
                     .font(.system(size: 10, weight: .medium))
                     .foregroundStyle(theme.textDim)
                     .flightInfoLine(minimumScale: 0.8)
@@ -403,11 +403,11 @@ struct LogbookRow: View {
             Spacer(minLength: 6)
 
             VStack(alignment: .trailing, spacing: 3) {
-                Text(entry.blockTime)
+                Text(L(entry.blockTime))
                     .font(.system(size: 12.5, weight: .bold, design: .monospaced))
                     .foregroundStyle(theme.textSecondary)
 
-                Text(Self.day.string(from: entry.landedAt))
+                Text(L(Self.day.string(from: entry.landedAt)))
                     .font(.system(size: 9.5, weight: .medium))
                     .foregroundStyle(theme.textDim)
             }
@@ -503,7 +503,7 @@ struct FlightPilotBadge: View {
                     .foregroundStyle(theme.textDim)
             }
 
-            Text(displayed)
+            Text(L(displayed))
                 .font(.system(size: nameSize, weight: .semibold))
                 .foregroundStyle(theme.textSecondary)
                 .flightInfoLine()

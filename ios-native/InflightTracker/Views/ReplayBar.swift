@@ -84,7 +84,7 @@ struct ReplayBar: View {
                 .tracking(0.8)
                 .foregroundStyle(theme.textDim)
 
-            Text(replay.title)
+            Text(L(replay.title))
                 .font(.system(size: 13, weight: .bold, design: .rounded))
                 .foregroundStyle(theme.textPrimary)
                 .flightInfoLine(minimumScale: 0.7)
@@ -141,12 +141,12 @@ struct ReplayBar: View {
                     }
             }
             .buttonStyle(.plain)
-            .accessibilityLabel(replay.isPlaying ? "Pause" : "Play")
+            .accessibilityLabel(L(replay.isPlaying ? "Pause" : "Play"))
 
             Button {
                 replay.cyclePace()
             } label: {
-                Text(replay.pace.label)
+                Text(L(replay.pace.label))
                     .font(.system(size: 11, weight: .bold, design: .rounded))
                     .foregroundStyle(theme.textPrimary)
                     .frame(width: 38, height: Self.controlsHeight)
@@ -168,11 +168,11 @@ struct ReplayBar: View {
 
     private func readout(_ value: String, _ unit: String) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 3) {
-            Text(value)
+            Text(L(value))
                 .font(.system(size: 13, weight: .semibold, design: .monospaced))
                 .foregroundStyle(theme.textPrimary)
 
-            Text(unit)
+            Text(L(unit))
                 .font(.system(size: 8, weight: .bold))
                 .foregroundStyle(theme.textDim)
         }

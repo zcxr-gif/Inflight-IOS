@@ -122,8 +122,8 @@ struct ProfileEditorView: View {
     private var hiddenNotice: some View {
         PanelSection(title: "NOT CURRENTLY PUBLIC") {
             VStack(alignment: .leading, spacing: 6) {
-                Text(draft.moderationNote
-                     ?? "This profile has been taken out of public view while it is looked at.")
+                Text(L(draft.moderationNote
+                     ?? "This profile has been taken out of public view while it is looked at."))
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(theme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -152,7 +152,7 @@ struct ProfileEditorView: View {
     private var uploadsPausedNotice: some View {
         PanelSection(title: "PICTURES ARE PAUSED") {
             VStack(alignment: .leading, spacing: 6) {
-                Text(store.standing?.uploadsNotice ?? "")
+                Text(L(store.standing?.uploadsNotice ?? ""))
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(theme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -181,7 +181,7 @@ struct ProfileEditorView: View {
                     ForEach(warnings) { warning in
                         VStack(alignment: .leading, spacing: 6) {
                             HStack(spacing: 6) {
-                                Text(warning.title.uppercased())
+                                Text(L(warning.title.uppercased()))
                                     .font(.system(size: 10, weight: .bold))
                                     .foregroundStyle(theme.textSecondary)
                                 if warning.isAcknowledged {
@@ -191,13 +191,13 @@ struct ProfileEditorView: View {
                                 }
                                 Spacer(minLength: 0)
                                 if let at = warning.createdAt {
-                                    Text(at.formatted(date: .abbreviated, time: .omitted))
+                                    Text(L(at.formatted(date: .abbreviated, time: .omitted)))
                                         .font(.system(size: 10, weight: .medium))
                                         .foregroundStyle(theme.textDim)
                                 }
                             }
 
-                            Text(warning.reason)
+                            Text(L(warning.reason))
                                 .font(.system(size: 12, weight: .medium))
                                 .foregroundStyle(theme.textSecondary)
                                 .fixedSize(horizontal: false, vertical: true)
@@ -257,7 +257,7 @@ struct ProfileEditorView: View {
                     }
                 }
 
-                Text(handleHint)
+                Text(L(handleHint))
                     .font(.system(size: 10.5, weight: .medium))
                     .foregroundStyle(theme.textDim)
                     .fixedSize(horizontal: false, vertical: true)
@@ -421,7 +421,7 @@ struct ProfileEditorView: View {
                                 }
                         }
                         .buttonStyle(.plain)
-                        .accessibilityLabel(preset.label)
+                        .accessibilityLabel(L(preset.label))
                     }
                 }
                 .padding(.vertical, 2)
@@ -437,7 +437,7 @@ struct ProfileEditorView: View {
             } else {
                 Image(systemName: "photo").font(.system(size: 11, weight: .bold))
             }
-            Text(busy ? "Uploading…" : title)
+            Text(L(busy ? "Uploading…" : title))
                 .font(.system(size: 12, weight: .bold, design: .rounded))
         }
         .foregroundStyle(theme.onAccent)
@@ -604,7 +604,7 @@ struct ProfileEditorView: View {
                 if await store.save(draft), isNew { dismiss() }
             }
         } label: {
-            Text(store.isSaving ? "Saving…" : (isNew ? "Claim @\(draft.handle)" : "Save"))
+            Text(L(store.isSaving ? "Saving…" : (isNew ? "Claim @\(draft.handle)" : "Save")))
                 .font(.system(size: 14, weight: .bold, design: .rounded))
                 .foregroundStyle(theme.onAccent)
                 .frame(maxWidth: .infinity)
@@ -641,7 +641,7 @@ struct ProfileEditorView: View {
     ) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             PanelRowLabel(title: title, symbol: symbol(for: title))
-            TextField(placeholder, text: text)
+            TextField(L(placeholder), text: text)
                 .font(.system(
                     size: 14,
                     weight: .medium,
@@ -673,7 +673,7 @@ struct ProfileEditorView: View {
         HStack(alignment: .top, spacing: 7) {
             Image(systemName: isProblem ? "exclamationmark.triangle" : "checkmark.circle")
                 .font(.system(size: 11, weight: .semibold))
-            Text(text)
+            Text(L(text))
                 .font(.system(size: 11.5, weight: .medium))
                 .fixedSize(horizontal: false, vertical: true)
         }

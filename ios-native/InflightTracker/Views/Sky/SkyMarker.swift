@@ -63,7 +63,7 @@ struct SkyMarker: View {
         .buttonStyle(.plain)
         .opacity(prominence)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(voiceOver)
+        .accessibilityLabel(L(voiceOver))
         .accessibilityHint("Opens this aircraft on the map")
     }
 
@@ -122,12 +122,12 @@ struct SkyMarker: View {
 
     private var reading: some View {
         VStack(spacing: 1) {
-            Text(target.callsign)
+            Text(L(target.callsign))
                 .font(.system(size: 11, weight: .bold, design: .rounded))
                 .foregroundStyle(tint)
                 .flightInfoLine(minimumScale: 0.7)
 
-            Text(detail)
+            Text(L(detail))
                 .font(.system(size: 9.5, weight: .semibold, design: .monospaced))
                 .foregroundStyle(.white.opacity(0.85))
                 .flightInfoLine(minimumScale: 0.7)

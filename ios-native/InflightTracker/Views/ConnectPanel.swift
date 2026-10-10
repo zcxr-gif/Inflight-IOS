@@ -141,19 +141,19 @@ struct ConnectPanel: View {
                 .frame(width: 8, height: 8)
 
             VStack(alignment: .leading, spacing: 3) {
-                Text(statusTitle)
+                Text(L(statusTitle))
                     .font(.system(size: 14, weight: .medium))
                     .foregroundStyle(theme.textPrimary)
 
                 if let detail = statusDetail {
-                    Text(detail)
+                    Text(L(detail))
                         .font(.system(size: 10.5, weight: .medium))
                         .foregroundStyle(theme.textDim)
                         .fixedSize(horizontal: false, vertical: true)
                 }
 
                 if let attempt = attemptLine {
-                    Text(attempt)
+                    Text(L(attempt))
                         .font(.system(size: 10, weight: .medium, design: .monospaced))
                         .foregroundStyle(theme.textDim)
                         .fixedSize(horizontal: false, vertical: true)
@@ -256,8 +256,8 @@ struct ConnectPanel: View {
                 .disabled(typedHost.trimmingCharacters(in: .whitespaces).isEmpty)
             }
 
-            Text("Find it in Infinite Flight under Settings → General → Infinite Flight Connect. "
-               + "Or search the network for it.")
+            Text(L("Find it in Infinite Flight under Settings → General → Infinite Flight Connect. "
+               + "Or search the network for it."))
                 .font(.system(size: 10.5, weight: .medium))
                 .foregroundStyle(theme.textDim)
                 .fixedSize(horizontal: false, vertical: true)
@@ -309,7 +309,7 @@ struct ConnectPanel: View {
                         Image(systemName: catchUpSymbol(result))
                             .font(.system(size: 12))
                             .foregroundStyle(catchUpColour(result))
-                        Text(result.label)
+                        Text(L(result.label))
                             .font(.system(size: 12.5, weight: .semibold))
                             .foregroundStyle(theme.textPrimary)
                         Spacer(minLength: 0)
@@ -366,7 +366,7 @@ struct ConnectPanel: View {
     /// banner is the whole of the answer to "did it connect?".
     private var notificationsOff: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(notificationsOffText)
+            Text(L(notificationsOffText))
                 .font(.system(size: 11.5, weight: .medium))
                 .foregroundStyle(.orange)
                 .fixedSize(horizontal: false, vertical: true)
@@ -380,7 +380,7 @@ struct ConnectPanel: View {
                     push.requestAuthorization()
                 }
             } label: {
-                Text(push.authorization == .denied ? "Open Settings" : "Allow notifications")
+                Text(L(push.authorization == .denied ? "Open Settings" : "Allow notifications"))
                     .font(.system(size: 12.5, weight: .semibold))
                     .foregroundStyle(theme.accent)
             }
@@ -430,7 +430,7 @@ struct ConnectPanel: View {
             if let blocker = sharingBlocker {
                 PanelDivider()
 
-                Text(blocker)
+                Text(L(blocker))
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(.orange)
                     .fixedSize(horizontal: false, vertical: true)
@@ -443,8 +443,8 @@ struct ConnectPanel: View {
 
                 VStack(alignment: .leading, spacing: 8) {
                     if !profiles.hasProfile {
-                        Text("Claim a handle first — a live status belongs to a profile, "
-                           + "and there is nowhere to show one without it.")
+                        Text(L("Claim a handle first — a live status belongs to a profile, "
+                           + "and there is nowhere to show one without it."))
                             .font(.system(size: 11, weight: .medium))
                             .foregroundStyle(.orange)
                             .fixedSize(horizontal: false, vertical: true)
@@ -457,15 +457,15 @@ struct ConnectPanel: View {
                     }
 
                     if let problem = publisher.problem {
-                        Text(problem)
+                        Text(L(problem))
                             .font(.system(size: 11, weight: .medium))
                             .foregroundStyle(.orange)
                             .fixedSize(horizontal: false, vertical: true)
                     }
 
-                    Text("Who can see it is set on your profile, under Live status. "
+                    Text(L("Who can see it is set on your profile, under Live status. "
                        + "It defaults to people who follow you — where you are now is a "
-                       + "different thing from where you have been.")
+                       + "different thing from where you have been."))
                         .font(.system(size: 10.5, weight: .medium))
                         .foregroundStyle(theme.textDim)
                         .fixedSize(horizontal: false, vertical: true)
@@ -529,11 +529,11 @@ struct ConnectPanel: View {
     /// `ConnectLiveReadings`, because that one animates and these do not.
     private func reading(_ name: String, _ value: String) -> some View {
         HStack {
-            Text(name)
+            Text(L(name))
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(theme.textSecondary)
             Spacer(minLength: 12)
-            Text(value)
+            Text(L(value))
                 .font(.system(size: 13, weight: .semibold, design: .monospaced))
                 .foregroundStyle(theme.textPrimary)
         }
@@ -565,7 +565,7 @@ struct ConnectPanel: View {
                             .foregroundStyle(theme.textSecondary)
                         Spacer(minLength: 0)
                         if let verdict = landing.verdict {
-                            Text(verdict)
+                            Text(L(verdict))
                                 .font(.system(size: 11, weight: .bold))
                                 .padding(.horizontal, 8)
                                 .padding(.vertical, 4)
@@ -591,8 +591,8 @@ struct ConnectPanel: View {
                     reading("Touchdown speed", "\(Int(speed.rounded())) kt")
                 }
 
-                Text("Measured by Infinite Flight, not worked out from the map. "
-                   + "It goes on the flight in your logbook.")
+                Text(L("Measured by Infinite Flight, not worked out from the map. "
+                   + "It goes on the flight in your logbook."))
                     .font(.system(size: 10.5, weight: .medium))
                     .foregroundStyle(theme.textDim)
                     .fixedSize(horizontal: false, vertical: true)
@@ -612,12 +612,12 @@ struct ConnectPanel: View {
                     ForEach(session.atcLog) { line in
                         VStack(alignment: .leading, spacing: 2) {
                             if let from = line.from {
-                                Text(from.uppercased())
+                                Text(L(from.uppercased()))
                                     .font(.system(size: 9, weight: .bold))
                                     .tracking(0.8)
                                     .foregroundStyle(theme.accent)
                             }
-                            Text(line.text)
+                            Text(L(line.text))
                                 .font(.system(size: 12.5, weight: .medium))
                                 .foregroundStyle(theme.textPrimary)
                                 .fixedSize(horizontal: false, vertical: true)
@@ -625,8 +625,8 @@ struct ConnectPanel: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                     }
 
-                    Text("The last few things said on your frequency. Kept while you fly "
-                       + "and thrown away afterwards — nothing here is recorded.")
+                    Text(L("The last few things said on your frequency. Kept while you fly "
+                       + "and thrown away afterwards — nothing here is recorded."))
                         .font(.system(size: 10.5, weight: .medium))
                         .foregroundStyle(theme.textDim)
                         .fixedSize(horizontal: false, vertical: true)
@@ -649,7 +649,7 @@ struct ConnectPanel: View {
                     // the controller, and that is all it publishes. The
                     // transcript is a separate pushed stream that this build of
                     // Infinite Flight does not appear to expose at all.
-                    Text(atcNoTranscriptText)
+                    Text(L(atcNoTranscriptText))
                         .font(.system(size: 11, weight: .medium))
                         .foregroundStyle(theme.textDim)
                         .fixedSize(horizontal: false, vertical: true)
@@ -700,7 +700,7 @@ struct ConnectPanel: View {
                 .fill(theme.textDim)
                 .frame(width: 4, height: 4)
                 .padding(.top, 6)
-            Text(text)
+            Text(L(text))
                 .font(.system(size: 11.5, weight: .medium))
                 .foregroundStyle(theme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -709,14 +709,14 @@ struct ConnectPanel: View {
 
     private var unresolved: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(session.unresolvedFields.map(\.rawValue).joined(separator: ", "))
+            Text(L(session.unresolvedFields.map(\.rawValue).joined(separator: ", ")))
                 .font(.system(size: 11, weight: .medium, design: .monospaced))
                 .foregroundStyle(theme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
 
-            Text("Different aircraft publish different things, and Infinite Flight "
+            Text(L("Different aircraft publish different things, and Infinite Flight "
                + "renames states between versions. Anything listed here is simply "
-               + "not shown; nothing else is affected.")
+               + "not shown; nothing else is affected."))
                 .font(.system(size: 10.5, weight: .medium))
                 .foregroundStyle(theme.textDim)
                 .fixedSize(horizontal: false, vertical: true)
@@ -835,11 +835,11 @@ private struct ConnectLiveReadings: View {
 
     private func row(_ reading: Reading) -> some View {
         HStack {
-            Text(reading.name)
+            Text(L(reading.name))
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(theme.textSecondary)
             Spacer(minLength: 12)
-            Text(reading.value)
+            Text(L(reading.value))
                 .font(.system(size: 13, weight: .semibold, design: .monospaced))
                 .foregroundStyle(theme.textPrimary)
                 // The figures change several times a second. They roll to their
@@ -860,9 +860,9 @@ private struct ConnectLiveReadings: View {
     /// the pilot's to choose.
     private func identityMismatch(_ name: String) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Your profile says @\(profiles.profile?.ifUsername ?? "") and the sim says "
+            Text(L("Your profile says @\(profiles.profile?.ifUsername ?? "") and the sim says "
                + "\(name). Announcements about your own flight are addressed by the name on "
-               + "your profile, so while these differ they cannot reach you.")
+               + "your profile, so while these differ they cannot reach you."))
                 .font(.system(size: 11.5, weight: .medium))
                 .foregroundStyle(.orange)
                 .fixedSize(horizontal: false, vertical: true)

@@ -195,14 +195,14 @@ struct FriendsWidgetView: View {
             Text("Nobody flying")
                 .font(WidgetType.title(family == .systemSmall ? 14 : 17))
                 .foregroundStyle(WidgetPalette.text)
-            Text(entry.friendCount == 1
+            Text(L(entry.friendCount == 1
                  ? "Your one watched pilot is offline."
-                 : "None of your \(entry.friendCount) watched pilots are up.")
+                 : "None of your \(entry.friendCount) watched pilots are up."))
                 .font(WidgetType.caption(10.5))
                 .foregroundStyle(WidgetPalette.dim)
                 .fixedSize(horizontal: false, vertical: true)
             if let stale = WidgetFormat.staleness(since: entry.capturedAt, now: entry.date) {
-                Text(stale)
+                Text(L(stale))
                     .font(WidgetType.caption(9.5))
                     .foregroundStyle(WidgetPalette.dim)
             }
@@ -223,7 +223,7 @@ struct FriendsWidgetView: View {
                     .flightInfoWidgetLine()
             }
             if let first = aloft.first {
-                Text(first.username.isEmpty ? first.callsign : first.username)
+                Text(L(first.username.isEmpty ? first.callsign : first.username))
                     .font(.system(size: 12, weight: .medium, design: .rounded))
                     .flightInfoWidgetLine()
                 Text("\(first.departureIcao) → \(first.arrivalIcao)")
@@ -245,7 +245,7 @@ private struct FriendTile: View {
     var body: some View {
         VStack(alignment: .leading, spacing: compact ? 1 : 2) {
             HStack(spacing: 5) {
-                Text(friend.username.isEmpty ? friend.callsign : friend.username)
+                Text(L(friend.username.isEmpty ? friend.callsign : friend.username))
                     .font(WidgetType.title(compact ? 11 : 12.5))
                     .foregroundStyle(WidgetPalette.text)
                     .flightInfoWidgetLine()
@@ -266,7 +266,7 @@ private struct FriendTile: View {
             }
 
             HStack(spacing: 5) {
-                Text(friend.routeLabel)
+                Text(L(friend.routeLabel))
                     .font(WidgetType.caption(compact ? 9 : 10))
                     .foregroundStyle(WidgetPalette.dim)
                     .flightInfoWidgetLine()

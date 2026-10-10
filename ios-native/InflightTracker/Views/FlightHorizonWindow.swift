@@ -234,7 +234,7 @@ struct HorizonSectionHeading: View {
                 .frame(width: 26, height: 26)
                 .background(palette.accent.opacity(0.14), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
 
-            Text(title)
+            Text(L(title))
                 .font(.system(size: 13.5, weight: .semibold))
                 .foregroundStyle(palette.text)
                 .lineLimit(1)
@@ -492,7 +492,7 @@ struct FlightHorizonHeader: View {
     private var identity: some View {
         VStack(alignment: .leading, spacing: 5) {
             if !eyebrow.isEmpty {
-                Text(eyebrow.uppercased())
+                Text(L(eyebrow.uppercased()))
                     .font(.system(size: 10.5, weight: .semibold))
                     .tracking(1.05)
                     .foregroundStyle(palette.ink(0.72))
@@ -501,7 +501,7 @@ struct FlightHorizonHeader: View {
                     .shadow(color: textShadow(0.4), radius: palette.hasImageBackground ? 6 : 4, y: 1)
             }
 
-            Text(flight.displayName)
+            Text(L(flight.displayName))
                 .font(.system(size: 21, weight: .semibold))
                 .tracking(-0.21)
                 .foregroundStyle(palette.text)
@@ -532,7 +532,7 @@ struct FlightHorizonHeader: View {
 
     /// A quiet glass tag at the photo's top left.
     private func credit(_ name: String) -> some View {
-        Text(name)
+        Text(L(name))
             .font(.system(size: 10.5, weight: .medium))
             .foregroundStyle(Color.white.opacity(0.86))
             .lineLimit(1)
@@ -675,7 +675,7 @@ struct FlightHorizonRouteStrip: View {
                 .padding(.horizontal, 4)
 
             HStack(spacing: 8) {
-                Text(facts.progress.map { "\(Int($0.remainingNM.rounded())) NM" } ?? "--- NM")
+                Text(L(facts.progress.map { "\(Int($0.remainingNM.rounded())) NM" } ?? "--- NM"))
                     .frame(maxWidth: .infinity, alignment: .leading)
                 phasePill
                 Text("ETE: \(HorizonRouteFacts.clock(facts.remaining))")
@@ -729,13 +729,13 @@ struct FlightHorizonRouteStrip: View {
                 if let airport = airport { onSelectAirport(airport) }
             } label: {
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    Text(icao)
+                    Text(L(icao))
                         .font(.system(size: 22, weight: .semibold))
                         .tracking(0.66)
                         .foregroundStyle(palette.text)
                         .shadow(color: palette.hasImageBackground && !palette.isLight ? palette.bg(0.9) : .clear, radius: 6, y: 1)
                     if let flag = airport?.flag, !flag.isEmpty {
-                        Text(flag).font(.system(size: 11))
+                        Text(L(flag)).font(.system(size: 11))
                     }
                 }
                 .lineLimit(1)
@@ -745,7 +745,7 @@ struct FlightHorizonRouteStrip: View {
             .disabled(airport == nil)
 
             if let name = airport?.name, !name.isEmpty {
-                Text(name)
+                Text(L(name))
                     .font(.system(size: 11.5, weight: .medium))
                     .foregroundStyle(palette.muted)
                     .lineLimit(1)
@@ -756,11 +756,11 @@ struct FlightHorizonRouteStrip: View {
             }
 
             HStack(alignment: .firstTextBaseline, spacing: 6) {
-                Text(time.text)
+                Text(L(time.text))
                     .font(.system(size: 13, weight: .medium).monospacedDigit())
                 if !time.label.isEmpty {
                     Text("·").font(.system(size: 11, weight: .medium)).opacity(0.7)
-                    Text(time.label).font(.system(size: 11, weight: .medium)).opacity(0.7)
+                    Text(L(time.label)).font(.system(size: 11, weight: .medium)).opacity(0.7)
                 }
             }
             .foregroundStyle(time.colour)
@@ -854,7 +854,7 @@ struct FlightHorizonRouteStrip: View {
             Circle()
                 .fill(track.map { Color(uiColor: NatTrackStyle.colour(for: $0.name)) } ?? horizonPhaseColour(phase))
                 .frame(width: 6, height: 6)
-            Text(track.map { "\(phase.label) · Track \($0.name)" } ?? phase.label)
+            Text(L(track.map { "\(phase.label) · Track \($0.name)" } ?? phase.label))
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(palette.ink(0.88))
         }
@@ -980,7 +980,7 @@ struct FlightHorizonPilotButton: View {
         return HStack(spacing: 12) {
             avatar(pilot)
 
-            Text(profile?.displayName ?? pilot)
+            Text(L(profile?.displayName ?? pilot))
                 .font(.system(size: 13.5, weight: .semibold))
                 .tracking(0.135)
                 .foregroundStyle(textColour)
@@ -1051,7 +1051,7 @@ struct FlightHorizonPilotButton: View {
             if let url = profile?.avatarURL {
                 PilotAvatar(url: url, initials: initials, side: 40)
             } else {
-                Text(initials)
+                Text(L(initials))
                     .font(.system(size: 13, weight: .bold))
                     .foregroundStyle(palette.isLight && !hasProfile ? Color(red: 0x1b / 255, green: 0x1e / 255, blue: 0x24 / 255) : .white)
             }
@@ -1172,21 +1172,21 @@ struct FlightHorizonGlance: View {
                     .foregroundStyle(palette.accent.opacity(0.9))
                     .rotationEffect(.degrees(turns && flight.heading.isFinite ? flight.heading : 0))
                     .animation(.easeOut(duration: 0.8), value: flight.heading)
-                Text(title)
+                Text(L(title))
                     .font(.system(size: 10.5, weight: .medium))
                     .foregroundStyle(palette.muted)
                     .lineLimit(1)
             }
 
             HStack(alignment: .firstTextBaseline, spacing: 2) {
-                Text(value)
+                Text(L(value))
                     .font(.system(size: 17, weight: .medium).monospacedDigit())
                     .foregroundStyle(palette.text)
                     .lineLimit(1)
                     .minimumScaleFactor(0.6)
                     .motionFigure(figure)
                 if let unit = unit {
-                    Text(unit)
+                    Text(L(unit))
                         .font(.system(size: 10, weight: .medium))
                         .foregroundStyle(palette.faint)
                 }
@@ -1253,10 +1253,10 @@ struct FlightHorizonStatus: View {
                     Text("Pilot Status")
                         .font(.system(size: 11, weight: .medium))
                         .foregroundStyle(palette.muted)
-                    Text(look.title)
+                    Text(L(look.title))
                         .font(.system(size: 16, weight: .semibold))
                         .foregroundStyle(palette.text)
-                    Text(look.detail)
+                    Text(L(look.detail))
                         .font(.system(size: 11))
                         .foregroundStyle(palette.faint)
                 }
@@ -1319,11 +1319,11 @@ struct FlightHorizonStatus: View {
                         .font(.system(size: 9))
                         .foregroundStyle(accent ? palette.accent : palette.faint)
                 }
-                Text(title)
+                Text(L(title))
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(accent ? palette.accent : palette.muted)
             }
-            Text(HorizonRouteFacts.clock(value))
+            Text(L(HorizonRouteFacts.clock(value)))
                 .font(.system(size: 17, weight: .medium).monospacedDigit())
                 .foregroundStyle(accent ? palette.accent : palette.text)
                 .lineLimit(1)
@@ -1350,7 +1350,7 @@ struct FlightHorizonDestination: View {
                     .foregroundStyle(Color(red: 0xee / 255, green: 0xc0 / 255, blue: 0x7e / 255))
 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(airport.icao)
+                    Text(L(airport.icao))
                         .font(.system(size: 16, weight: .semibold))
                         .tracking(0.48)
                         .foregroundStyle(palette.text)
@@ -1432,7 +1432,7 @@ struct FlightHorizonGraph: View {
     private func legend(_ colour: Color, _ label: String) -> some View {
         HStack(spacing: 5) {
             RoundedRectangle(cornerRadius: 2).fill(colour).frame(width: 14, height: 3)
-            Text(label.uppercased())
+            Text(L(label.uppercased()))
                 .font(.system(size: 9, weight: .bold))
                 .tracking(0.4)
                 .foregroundStyle(Self.textColour)
@@ -1467,12 +1467,12 @@ struct FlightHorizonGraph: View {
 
                 let altLabel = Format.number(altMax * Double(5 - i) / 5)
                 context.draw(
-                    Text(altLabel).font(mono).foregroundColor(Self.altColour.opacity(0.85)),
+                    Text(L(altLabel)).font(mono).foregroundColor(Self.altColour.opacity(0.85)),
                     at: CGPoint(x: x0 - 6, y: y), anchor: .trailing
                 )
                 let gsLabel = String(Int((gsMax * Double(5 - i) / 5).rounded()))
                 context.draw(
-                    Text(gsLabel).font(mono).foregroundColor(Self.gsColour.opacity(0.85)),
+                    Text(L(gsLabel)).font(mono).foregroundColor(Self.gsColour.opacity(0.85)),
                     at: CGPoint(x: x1 + 6, y: y), anchor: .leading
                 )
             }
@@ -1481,7 +1481,7 @@ struct FlightHorizonGraph: View {
                 let t = tMin + (tMax - tMin) * Double(i) / 5
                 let anchor: UnitPoint = i == 0 ? .leading : (i == 5 ? .trailing : .center)
                 context.draw(
-                    Text(HorizonRouteFacts.zulu(Date(timeIntervalSince1970: t))).font(mono).foregroundColor(Self.textColour),
+                    Text(L(HorizonRouteFacts.zulu(Date(timeIntervalSince1970: t)))).font(mono).foregroundColor(Self.textColour),
                     at: CGPoint(x: xOf(t), y: y1 + 13), anchor: anchor
                 )
             }
@@ -1586,7 +1586,7 @@ struct FlightHorizonNavigation: View {
                 Text("Currently over")
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(palette.muted)
-                Text(place.text)
+                Text(L(place.text))
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(palette.text)
                     .lineLimit(2)
@@ -1631,7 +1631,7 @@ struct FlightHorizonNavigation: View {
 
     @ViewBuilder
     private func groupLabel(_ title: String, first: Bool) -> some View {
-        Text(title)
+        Text(L(title))
             .font(.system(size: 11.5, weight: .medium))
             .foregroundStyle(palette.faint)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -1652,16 +1652,16 @@ struct FlightHorizonNavigation: View {
             ForEach(cells.indices, id: \.self) { index in
                 let cell = cells[index]
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(cell.0)
+                    Text(L(cell.0))
                         .font(.system(size: 11, weight: .medium))
                         .foregroundStyle(palette.muted)
                         .lineLimit(1)
                     HStack(alignment: .firstTextBaseline, spacing: 2) {
-                        Text(cell.1)
+                        Text(L(cell.1))
                             .font(.system(size: 14.5, weight: .medium).monospacedDigit())
                             .foregroundStyle(palette.text)
                         if let unit = cell.2 {
-                            Text(unit)
+                            Text(L(unit))
                                 .font(.system(size: 10, weight: .medium))
                                 .foregroundStyle(palette.muted)
                         }
@@ -1676,12 +1676,12 @@ struct FlightHorizonNavigation: View {
 
     private func row(_ label: String, _ value: String) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 12) {
-            Text(label)
+            Text(L(label))
                 .font(.system(size: 12.5, weight: .medium))
                 .foregroundStyle(palette.muted)
                 .lineLimit(1)
             Spacer(minLength: 8)
-            Text(value)
+            Text(L(value))
                 .font(.system(size: 13.5, weight: .medium).monospacedDigit())
                 .foregroundStyle(palette.text)
                 .lineLimit(1)
@@ -1723,11 +1723,11 @@ struct FlightHorizonAircraft: View {
 
     private func row(_ label: String, _ value: String, mono: Bool, first: Bool) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 12) {
-            Text(label)
+            Text(L(label))
                 .font(.system(size: 12.5, weight: .medium))
                 .foregroundStyle(palette.muted)
             Spacer(minLength: 8)
-            Text(value)
+            Text(L(value))
                 .font(.system(size: 13.5, weight: .medium))
                 .foregroundStyle(palette.text)
                 .lineLimit(1)

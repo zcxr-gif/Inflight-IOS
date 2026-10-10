@@ -74,12 +74,12 @@ struct FileThisFlightRow: View {
                         .frame(width: 22)
 
                     VStack(alignment: .leading, spacing: 3) {
-                        Text(title)
+                        Text(L(title))
                             .font(.system(size: 13.5, weight: .bold, design: .rounded))
                             .foregroundStyle(theme.textPrimary)
                             .flightInfoLine(minimumScale: 0.8)
 
-                        Text(detail)
+                        Text(L(detail))
                             .font(.system(size: 10.5, weight: .medium))
                             .foregroundStyle(theme.textDim)
                             .fixedSize(horizontal: false, vertical: true)
@@ -96,8 +96,8 @@ struct FileThisFlightRow: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel(title)
-            .accessibilityHint(detail)
+            .accessibilityLabel(L(title))
+            .accessibilityHint(L(detail))
             // Only so `filed` can answer. Reads once per launch and not again
             // — see `FlightPlanBook.loadIfNeeded`.
             //

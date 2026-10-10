@@ -133,7 +133,7 @@ struct FlightPlansPanel: View {
     private func trouble(_ message: String) -> some View {
         PanelSection(title: "TROUBLE") {
             VStack(alignment: .leading, spacing: 8) {
-                Text(message)
+                Text(L(message))
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(theme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -166,13 +166,13 @@ private struct PlanRow: View {
             HStack(spacing: 10) {
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 7) {
-                        Text(plan.routeLabel)
+                        Text(L(plan.routeLabel))
                             .font(.system(size: 14.5, weight: .bold, design: .rounded))
                             .foregroundStyle(theme.textPrimary)
                             .flightInfoLine(minimumScale: 0.8)
 
                         if plan.status != .planned {
-                            Text(plan.status.label.uppercased())
+                            Text(L(plan.status.label.uppercased()))
                                 .font(.system(size: 8.5, weight: .bold))
                                 .tracking(0.6)
                                 .foregroundStyle(theme.textDim)
@@ -186,7 +186,7 @@ private struct PlanRow: View {
                         HStack(spacing: 5) {
                             Image(systemName: "figure.walk.departure")
                                 .font(.system(size: 9))
-                            Text(stands)
+                            Text(L(stands))
                                 .font(.system(size: 11.5, weight: .semibold, design: .monospaced))
                         }
                         .foregroundStyle(theme.textSecondary)
@@ -194,7 +194,7 @@ private struct PlanRow: View {
                     }
 
                     if let line = scheduleLine {
-                        Text(line)
+                        Text(L(line))
                             .font(.system(size: 10.5, weight: .medium))
                             .foregroundStyle(theme.textDim)
                             .flightInfoLine(minimumScale: 0.75)
@@ -212,7 +212,7 @@ private struct PlanRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.pressable(scale: 0.985))
-        .accessibilityLabel(accessibility)
+        .accessibilityLabel(L(accessibility))
     }
 
     /// The schedule as one line. Written out rather than run through a range

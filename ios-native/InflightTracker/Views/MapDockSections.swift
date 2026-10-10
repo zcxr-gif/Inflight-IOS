@@ -280,7 +280,7 @@ struct MapDockSections: View {
                     .font(.system(size: 16, weight: .semibold))
                     .foregroundStyle(theme.textPrimary)
                     .frame(height: 20)
-                Text(title)
+                Text(L(title))
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(theme.textSecondary)
                     .flightInfoLine(minimumScale: 0.8)
@@ -300,7 +300,7 @@ struct MapDockSections: View {
     ) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             Label {
-                Text(title)
+                Text(L(title))
             } icon: {
                 Image(systemName: symbol)
                     .font(.system(size: 13, weight: .bold))
@@ -335,7 +335,7 @@ struct MapDockSections: View {
 
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
-                    Text(row.callsign)
+                    Text(L(row.callsign))
                         .font(.system(size: 16, weight: .bold, design: .rounded))
                         .foregroundStyle(theme.textPrimary)
                         .lineLimit(1)
@@ -344,7 +344,7 @@ struct MapDockSections: View {
                     if !row.type.isEmpty { chip(row.type) }
                 }
 
-                Text(row.route)
+                Text(L(row.route))
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(theme.textSecondary)
                     .lineLimit(1)
@@ -362,7 +362,7 @@ struct MapDockSections: View {
 
     private func airportRow(_ field: MapDockDigest.AirportRow, rank: Int) -> some View {
         HStack(spacing: 12) {
-            Text(field.flag.isEmpty ? "🏳️" : field.flag)
+            Text(L(field.flag.isEmpty ? "🏳️" : field.flag))
                 .font(.system(size: 24))
                 .frame(width: 38, height: 38)
                 .background {
@@ -374,7 +374,7 @@ struct MapDockSections: View {
 
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {
-                    Text(field.name)
+                    Text(L(field.name))
                         .font(.system(size: 16, weight: .bold, design: .rounded))
                         .foregroundStyle(theme.textPrimary)
                         .lineLimit(1)
@@ -410,7 +410,7 @@ struct MapDockSections: View {
     /// The airline's own colour where we hold one, its letters on top.
     private func airlineBadge(_ row: MapDockDigest.FlightRow) -> some View {
         let colours = AirlineAccent.colours(forLivery: row.livery, isLight: theme.isLight)
-        return Text(row.code)
+        return Text(L(row.code))
             .font(.system(size: row.code.count > 2 ? 11 : 13, weight: .heavy, design: .rounded))
             .foregroundStyle(colours?.ink ?? theme.textPrimary)
             .minimumScaleFactor(0.6)
@@ -430,7 +430,7 @@ struct MapDockSections: View {
     }
 
     private func chip(_ text: String) -> some View {
-        Text(text)
+        Text(L(text))
             .font(.system(size: 10.5, weight: .semibold, design: .monospaced))
             .foregroundStyle(theme.textSecondary)
             .lineLimit(1)
@@ -442,13 +442,13 @@ struct MapDockSections: View {
 
     private func figure(_ value: String, unit: String) -> some View {
         VStack(alignment: .trailing, spacing: 1) {
-            Text(value)
+            Text(L(value))
                 .font(.system(size: 15, weight: .heavy, design: .rounded))
                 .foregroundStyle(theme.textPrimary)
                 .monospacedDigit()
                 .contentTransition(.numericText())
             if !unit.isEmpty {
-                Text(unit)
+                Text(L(unit))
                     .font(.system(size: 8.5, weight: .bold))
                     .tracking(0.6)
                     .foregroundStyle(theme.textDim)

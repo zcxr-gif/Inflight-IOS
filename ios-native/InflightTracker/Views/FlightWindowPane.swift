@@ -213,7 +213,7 @@ struct FlightWindowPane<Content: View>: View {
             .frame(width: 132)
             .onTapGesture { onClose() }
             .accessibilityElement()
-            .accessibilityLabel(closeLabel)
+            .accessibilityLabel(L(closeLabel))
             .accessibilityAddTraits(.isButton)
             .accessibilityAction { onClose() }
             .frame(maxWidth: .infinity)

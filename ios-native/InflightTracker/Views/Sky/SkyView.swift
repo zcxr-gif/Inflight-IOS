@@ -329,7 +329,7 @@ struct SkyView: View {
                         Button {
                             vantage = .flight(id: flight.id, name: flight.displayName)
                         } label: {
-                            Label(flight.displayName, systemImage: "airplane")
+                            Label(L(flight.displayName), systemImage: "airplane")
                         }
                     }
                 }
@@ -356,7 +356,7 @@ struct SkyView: View {
                 Button {
                     range = option
                 } label: {
-                    Label(option.label, systemImage: option == range ? "checkmark" : "scope")
+                    Label(L(option.label), systemImage: option == range ? "checkmark" : "scope")
                 }
             }
         } label: {
@@ -583,7 +583,7 @@ private struct SkyField: View {
 
         return ZStack {
             ForEach(horizon(rotation: rotation, focal: focal)) { mark in
-                Text(mark.label)
+                Text(L(mark.label))
                     .font(.system(size: 15, weight: .heavy, design: .rounded))
                     .foregroundStyle(.white.opacity(0.7))
                     .shadow(color: .black.opacity(0.6), radius: 2)

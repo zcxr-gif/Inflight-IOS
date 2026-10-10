@@ -284,7 +284,7 @@ struct ReportProfileSheet: View {
                 }
 
                 if let problem = problem {
-                    Text(problem)
+                    Text(L(problem))
                         .font(.system(size: 11.5, weight: .medium))
                         .foregroundStyle(theme.textSecondary)
                         .padding(.horizontal, 2)
@@ -293,7 +293,7 @@ struct ReportProfileSheet: View {
                 Button {
                     Task { await send() }
                 } label: {
-                    Text(isSending ? "Sending…" : "Send report")
+                    Text(L(isSending ? "Sending…" : "Send report"))
                         .font(.system(size: 14, weight: .bold, design: .rounded))
                         .foregroundStyle(theme.onAccent)
                         .frame(maxWidth: .infinity)

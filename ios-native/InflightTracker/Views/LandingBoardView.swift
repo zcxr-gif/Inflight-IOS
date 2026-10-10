@@ -105,7 +105,7 @@ struct LandingBoardView: View {
 
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 5) {
-                        Text(entry.displayName)
+                        Text(L(entry.displayName))
                             .font(.system(size: 14, weight: .semibold))
                             .foregroundStyle(theme.textPrimary)
                             .lineLimit(1)
@@ -126,9 +126,9 @@ struct LandingBoardView: View {
                         }
                     }
 
-                    Text("\(entry.landings) landing\(entry.landings == 1 ? "" : "s")"
+                    Text(L("\(entry.landings) landing\(entry.landings == 1 ? "" : "s")"
                        + " · avg \(entry.averageFPM) fpm"
-                       + (entry.greasers > 0 ? " · \(entry.greasers) greased" : ""))
+                       + (entry.greasers > 0 ? " · \(entry.greasers) greased" : "")))
                         .font(.system(size: 10.5, weight: .medium))
                         .foregroundStyle(theme.textSecondary)
                         .lineLimit(1)
@@ -140,7 +140,7 @@ struct LandingBoardView: View {
                     Text("\(entry.bestFPM)")
                         .font(.system(size: 17, weight: .bold, design: .rounded))
                         .foregroundStyle(theme.textPrimary)
-                    Text(entry.verdict.uppercased())
+                    Text(L(entry.verdict.uppercased()))
                         .font(.system(size: 8, weight: .bold))
                         .tracking(0.6)
                         .foregroundStyle(theme.textDim)
@@ -167,7 +167,7 @@ struct LandingBoardView: View {
             HStack(spacing: 11) {
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 5) {
-                        Text(landing.displayName)
+                        Text(L(landing.displayName))
                             .font(.system(size: 14, weight: .semibold))
                             .foregroundStyle(theme.textPrimary)
                             .lineLimit(1)
@@ -188,7 +188,7 @@ struct LandingBoardView: View {
                         }
                     }
 
-                    Text(subtitleFor(landing))
+                    Text(L(subtitleFor(landing)))
                         .font(.system(size: 10.5, weight: .medium))
                         .foregroundStyle(theme.textSecondary)
                         .lineLimit(1)
@@ -200,7 +200,7 @@ struct LandingBoardView: View {
                     Text("\(landing.verticalSpeedFPM)")
                         .font(.system(size: 17, weight: .bold, design: .rounded))
                         .foregroundStyle(theme.textPrimary)
-                    Text(landing.verdict.uppercased())
+                    Text(L(landing.verdict.uppercased()))
                         .font(.system(size: 8, weight: .bold))
                         .tracking(0.6)
                         .foregroundStyle(theme.textDim)
@@ -230,7 +230,7 @@ struct LandingBoardView: View {
     }()
 
     private func note(_ text: String) -> some View {
-        Text(text)
+        Text(L(text))
             .font(.system(size: 12, weight: .medium))
             .foregroundStyle(theme.textSecondary)
             .fixedSize(horizontal: false, vertical: true)

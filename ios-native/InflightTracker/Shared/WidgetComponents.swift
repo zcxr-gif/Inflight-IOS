@@ -33,7 +33,7 @@ struct RouteStrip: View {
 
     var body: some View {
         HStack(alignment: .center, spacing: icaoSize * 0.34) {
-            Text(departure.isEmpty ? "———" : departure)
+            Text(L(departure.isEmpty ? "———" : departure))
                 .font(WidgetType.icao(icaoSize))
                 .foregroundStyle(WidgetPalette.text)
                 .flightInfoWidgetLine()
@@ -41,7 +41,7 @@ struct RouteStrip: View {
             track
                 .frame(maxWidth: .infinity)
 
-            Text(arrival.isEmpty ? "———" : arrival)
+            Text(L(arrival.isEmpty ? "———" : arrival))
                 .font(WidgetType.icao(icaoSize))
                 .foregroundStyle(WidgetPalette.text)
                 .flightInfoWidgetLine()
@@ -107,11 +107,11 @@ struct WidgetStat: View {
 
     var body: some View {
         VStack(alignment: alignment, spacing: 1) {
-            Text(value)
+            Text(L(value))
                 .font(WidgetType.readout(valueSize))
                 .foregroundStyle(WidgetPalette.text)
                 .flightInfoWidgetLine()
-            Text(label)
+            Text(L(label))
                 .font(.system(size: valueSize * 0.58, weight: .bold, design: .rounded))
                 .tracking(0.5)
                 .foregroundStyle(WidgetPalette.dim)
@@ -130,7 +130,7 @@ struct PhaseChip: View {
         HStack(spacing: size * 0.35) {
             Image(systemName: symbol)
                 .font(.system(size: size * 0.95, weight: .bold))
-            Text(text)
+            Text(L(text))
                 .font(.system(size: size, weight: .bold, design: .rounded))
         }
         .foregroundStyle(WidgetPalette.text)

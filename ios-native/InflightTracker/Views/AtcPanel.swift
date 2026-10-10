@@ -91,17 +91,17 @@ struct AtcPanel: View {
         } label: {
             VStack(alignment: .leading, spacing: 9) {
                 HStack(spacing: 8) {
-                    Text(station.identifier)
+                    Text(L(station.identifier))
                         .font(.system(size: 17, weight: .heavy, design: .rounded))
                         .foregroundStyle(theme.textPrimary)
                         .fixedSize()
 
                     if let airport = station.airport {
                         if !airport.flag.isEmpty {
-                            Text(airport.flag).font(.system(size: 11))
+                            Text(L(airport.flag)).font(.system(size: 11))
                         }
 
-                        Text(airport.name.uppercased())
+                        Text(L(airport.name.uppercased()))
                             .font(.system(size: 9, weight: .semibold))
                             .tracking(0.4)
                             .foregroundStyle(theme.textDim)
@@ -133,7 +133,7 @@ struct AtcPanel: View {
 
     private func centerRow(_ station: AtcStation) -> some View {
         VStack(alignment: .leading, spacing: 9) {
-            Text(station.identifier)
+            Text(L(station.identifier))
                 .font(.system(size: 17, weight: .heavy, design: .rounded))
                 .foregroundStyle(theme.textPrimary)
                 .flightInfoLine(minimumScale: 0.7)

@@ -134,7 +134,7 @@ struct FlightPlanEditor: View {
 
             PanelDivider()
 
-            Text(gateFootnote)
+            Text(L(gateFootnote))
                 .font(.system(size: 10.5, weight: .medium))
                 .foregroundStyle(theme.textDim)
                 .fixedSize(horizontal: false, vertical: true)
@@ -314,7 +314,7 @@ struct FlightPlanEditor: View {
                     if book.isSaving {
                         ProgressView().controlSize(.small).tint(theme.onAccent)
                     }
-                    Text(original.isSaved ? "Save changes" : "File this plan")
+                    Text(L(original.isSaved ? "Save changes" : "File this plan"))
                         .font(.system(size: 15, weight: .bold))
                 }
                 .foregroundStyle(draft.isComplete ? theme.onAccent : theme.textDim)
@@ -355,7 +355,7 @@ struct FlightPlanEditor: View {
 
     private func trouble(_ message: String) -> some View {
         PanelSection(title: "THAT DIDN'T SAVE") {
-            Text(message)
+            Text(L(message))
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(theme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -459,7 +459,7 @@ private struct FieldRow: View {
 
                 Spacer(minLength: 12)
 
-                TextField(placeholder, text: $text)
+                TextField(L(placeholder), text: $text)
                     .font(.system(size: 14, weight: .semibold, design: kind == .code ? .monospaced : .default))
                     .foregroundStyle(theme.textPrimary)
                     .multilineTextAlignment(.trailing)
@@ -469,7 +469,7 @@ private struct FieldRow: View {
             }
 
             if let detail = detail, !detail.isEmpty {
-                Text(detail)
+                Text(L(detail))
                     .font(.system(size: 10.5, weight: .medium))
                     .foregroundStyle(theme.textDim)
                     .padding(.leading, 30)
@@ -553,14 +553,14 @@ private struct GateRow: View {
                 .disabled(icao.count < 3)
                 .opacity(icao.count < 3 ? 0.4 : 1)
                 .accessibilityLabel(
-                    canOpenMap
+                    L(canOpenMap
                         ? "Pick the \(role == .departure ? "departure" : "arrival") gate on the airport map"
-                        : "Picking a gate on the map is part of Inflight Pro"
+                        : "Picking a gate on the map is part of Inflight Pro")
                 )
             }
 
             if let detail = detail {
-                Text(detail)
+                Text(L(detail))
                     .font(.system(size: 10.5, weight: .medium))
                     .foregroundStyle(theme.textDim)
                     .padding(.leading, 30)
