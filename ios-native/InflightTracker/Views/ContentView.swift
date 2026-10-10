@@ -90,7 +90,15 @@ struct ContentView: View {
 
     /// Which way the map is turned, in whole degrees clockwise from north —
     /// see `compassControl`.
-    @State private var mapBearing: Double = 0
+    ///
+    /// Held in a box rather than as state of this view. A pinch turns the map
+    /// a degree at a time, and every one of those used to redraw the whole of
+    /// this screen — mid-gesture, on the same main thread the map is drawn
+    /// from. Only the needle reads the number, so only the needle observes it;
+    /// everything else asks `isMapBearingOff`, which changes only as the
+    /// compass comes and goes.
+    @State private var mapBearing = MapBearing()
+    @State private var isMapBearingOff = false
 
     /// The ruler: whether it is down, and the leg it is measuring.
     @State private var measurement = MapMeasurement()
@@ -756,7 +764,11 @@ struct ContentView: View {
             showsVaMarks: filters.showsVaMarks,
             weatherTiles: mapWeather.tiles,
             onCameraMoving: { mapWeather.report(cameraMoving: $0) },
-            onBearingChanged: { mapBearing = $0 },
+            onBearingChanged: { bearing in
+                mapBearing.degrees = bearing
+                let off = abs(bearing) >= 1
+                if off != isMapBearingOff { isMapBearingOff = off }
+            },
             // Where to sweep for real traffic, on the settle rather than
             // through the gesture. The planet reports the same pair from its
             // own camera, so the layer behaves the same on both shapes of the
@@ -2633,7 +2645,7 @@ struct ContentView: View {
     /// Whether the map is turned away from north by enough to offer turning
     /// it back.
     private var isMapTurned: Bool {
-        !isPlanetMap && abs(mapBearing) >= 1
+        !isPlanetMap && isMapBearingOff
     }
 
     /// The compass: only there while the map is turned, its needle pointing
@@ -2644,21 +2656,15 @@ struct ContentView: View {
     @ViewBuilder
     private var compassControl: some View {
         if isMapTurned {
-            Button {
+            CompassButton(
+                bearing: mapBearing,
+                tint: theme.textPrimary,
+                size: CGSize(width: Self.cornerWidth, height: Self.cornerRowHeight)
+            ) {
                 // Facing north and riding behind the tail cannot both hold.
                 isChasing = false
                 mapCommand = MapCommand(kind: .northUp)
-            } label: {
-                Image(systemName: "location.north.line.fill")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(theme.textPrimary)
-                    .rotationEffect(.degrees(-mapBearing))
-                    .frame(width: Self.cornerWidth, height: Self.cornerRowHeight)
-                    .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Face north")
-            .accessibilityValue("The map is turned \(Int(abs(mapBearing))) degrees \(mapBearing > 0 ? "clockwise" : "anticlockwise")")
             .transition(.opacity)
         }
     }
@@ -2813,4 +2819,33 @@ struct ContentView: View {
             .contentShape(Rectangle())
     }
 
+}
+
+/// Which way the map is turned, for the compass needle and nothing else — see
+/// `ContentView.mapBearing`.
+final class MapBearing: ObservableObject {
+    @Published var degrees: Double = 0
+}
+
+/// The compass, redrawn on its own as the map turns under it.
+private struct CompassButton: View {
+    @ObservedObject var bearing: MapBearing
+    let tint: Color
+    let size: CGSize
+    let action: () -> Void
+
+    var body: some View {
+        let degrees = bearing.degrees
+        Button(action: action) {
+            Image(systemName: "location.north.line.fill")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(tint)
+                .rotationEffect(.degrees(-degrees))
+                .frame(width: size.width, height: size.height)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Face north")
+        .accessibilityValue("The map is turned \(Int(abs(degrees))) degrees \(degrees > 0 ? "clockwise" : "anticlockwise")")
+    }
 }

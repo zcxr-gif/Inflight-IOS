@@ -388,6 +388,7 @@ struct TrackerMapView: UIViewRepresentable {
             VaMarkStore.shared.stopObservingMarks(self)
             AircraftModelStore.shared.stopObserving(self)
             pendingSettle?.cancel()
+            isTouchingMap = false
         }
 
         /// The style has loaded — the first one, or a new one after a change
@@ -830,6 +831,16 @@ struct TrackerMapView: UIViewRepresentable {
         private var isRegionChanging = false
         private var pendingSettle: DispatchWorkItem?
 
+        /// Whether a finger is on the map right now.
+        ///
+        /// A drag that pauses for longer than the settle window is still a
+        /// drag, and the settle's work — every field rewritten, the pavement,
+        /// the winds, the weather, a sweep of real traffic, the radar loop
+        /// restarted — landing under a finger that is about to move again is
+        /// a dropped frame in the middle of the gesture. So the settle waits
+        /// for the finger to lift, and the lift schedules it.
+        private var isTouchingMap = false
+
         private func cameraDidChange() {
             guard let mapView = mapView, let map = map else { return }
             let bounds = mapView.bounds
@@ -904,6 +915,8 @@ struct TrackerMapView: UIViewRepresentable {
 
             let work = DispatchWorkItem { [weak self] in
                 guard let self = self, let map = self.map else { return }
+                // The lift schedules this again.
+                guard !self.isTouchingMap else { return }
                 if self.isRegionChanging {
                     self.isRegionChanging = false
                     self.parent.onCameraMoving(false)
@@ -3338,6 +3351,7 @@ extension TrackerMapView.Coordinator: GestureManagerDelegate {
     /// A pinch, a rotation or a tilt only pauses it: the camera glides back
     /// onto the aeroplane when the gesture is done.
     func gestureManager(_ gestureManager: GestureManager, didBegin gestureType: GestureType) {
+        if gestureType != .singleTap { isTouchingMap = true }
         guard parent.isFollowing else { return }
         switch gestureType {
         case .pan:
@@ -3352,6 +3366,12 @@ extension TrackerMapView.Coordinator: GestureManagerDelegate {
     }
 
     func gestureManager(_ gestureManager: GestureManager, didEnd gestureType: GestureType, willAnimate: Bool) {
+        if isTouchingMap {
+            isTouchingMap = false
+            // A fling carries on moving the camera, and each of those changes
+            // pushes the settle back; a plain lift is the end of it.
+            scheduleSettle()
+        }
         if !willAnimate { resumeFollowAfterGesture() }
     }
 
