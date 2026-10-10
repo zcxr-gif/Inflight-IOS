@@ -1407,7 +1407,11 @@ struct FlightHorizonGraph: View {
         .sorted { $0.t < $1.t }
     }
 
-    var body: some View {
+    /// Geometry, not reading order: in Arabic or Urdu a mirrored instrument would
+    /// show bank, heading or bearing the wrong way round.
+    var body: some View { drawing.environment(\.layoutDirection, .leftToRight) }
+
+    @ViewBuilder private var drawing: some View {
         let samples = self.samples
         return VStack(spacing: 6) {
             if samples.count < 2 {
