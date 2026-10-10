@@ -1030,7 +1030,10 @@ struct ContentView: View {
             if isChromeHidden {
                 brandMark
             } else {
+                // The weather chip and the bars under it give way to the
+                // window as it opens, and come back as it goes down.
                 topChrome
+                    .modifier(FadesUnderFlightWindow(travel: flightWindowTravel, isActive: isFlightDockUp))
                 mapControls
                 mapStyleControl
                 mapToolbar
@@ -2682,9 +2685,15 @@ struct ContentView: View {
             // and one of the two is always zero.
             .padding(.trailing, 16 + mapTrailingInset)
             .padding(.bottom, flightWindowBottomInset + 8)
-            // Down with the window while it is being pulled, and back up with
-            // it when it is let go.
-            .modifier(RidesFlightWindow(travel: flightWindowTravel))
+            // Away altogether when even lying on its side the stack has no
+            // room between the window and the avatar — a peak tall enough to
+            // reach up into the corner — and back as soon as there is.
+            .opacity(hubFits ? 1 : 0)
+            .allowsHitTesting(hubFits)
+            .motion(Motion.chrome, value: hubFits)
+            // Down with the window while it is being pulled, back up with it
+            // when it is let go, and faded as it opens to the full window.
+            .modifier(RidesFlightWindow(travel: flightWindowTravel, isActive: isFlightDockUp))
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
             .motion(Motion.chrome, value: axis)
             // On the window's own spring whenever the window changes height —
@@ -2764,6 +2773,13 @@ struct ContentView: View {
         let height = stack + (isPlanetMap ? 0 : 8 + Self.cornerWidth)
         let room = mapAreaSize.height - (flightWindowBottomInset + 8) - Self.avatarClearance
         return height <= room ? .vertical : .horizontal
+    }
+
+    /// Whether the hub has room at all: the height of the stack on its side,
+    /// between the top of the window and the avatar.
+    private var hubFits: Bool {
+        let room = mapAreaSize.height - (flightWindowBottomInset + 8) - Self.avatarClearance
+        return mapAreaSize.height <= 0 || room >= Self.cornerWidth
     }
 
     /// The top of the map the hub has to keep out of: the top row's padding,
