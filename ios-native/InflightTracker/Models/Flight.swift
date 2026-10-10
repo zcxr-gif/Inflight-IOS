@@ -44,6 +44,14 @@ struct Flight: Identifiable, Equatable {
     let callsign: String?
     let username: String?
 
+    /// `username`, lowercased — what every comparison against a pilot's name
+    /// is made on. Worked out here, on the decode queue, once per aircraft per
+    /// packet: the walks that ask "is this mine", "is this a friend" run over
+    /// the whole server on the main thread, several times a packet, and each
+    /// used to lowercase every name again for itself. Nil when there is no
+    /// name.
+    let usernameKey: String?
+
     /// The pilot's Infinite Flight account id, as the feed sends it.
     ///
     /// Not shown anywhere. It is the key every one of the backend's user
@@ -149,6 +157,7 @@ struct Flight: Identifiable, Equatable {
 
         self.callsign = Flight.text(payload["callsign"])
         self.username = Flight.text(payload["username"])
+        self.usernameKey = username.flatMap { $0.isEmpty ? nil : $0.lowercased() }
         self.userId = Flight.text(payload["userId"])
         self.virtualOrganization = Flight.text(payload["virtualOrganization"])
         // Via `number` because the backend has sent it as both a number and a
@@ -225,6 +234,7 @@ struct Flight: Identifiable, Equatable {
         // the highlighting, the watchlist and every profile lookup key on, and
         // a value there would put real traffic into all three.
         self.username = nil
+        self.usernameKey = nil
         self.userId = nil
         self.virtualOrganization = nil
 

@@ -170,6 +170,13 @@ final class FlightInfoAppearance: ObservableObject {
     private static let mapTerrainKey = "map.terrain"
     private static let mapBrightnessKey = "map.brightness"
     private static let globeSkinKey = "map.globe.skin"
+    private static let mapLightKey = "map.custom.light"
+    private static let mapTintKey = "map.custom.tint"
+    private static let mapFontKey = "map.custom.font"
+    private static let mapPlaceNamesKey = "map.custom.placeNames"
+    private static let mapRoadNamesKey = "map.custom.roadNames"
+    private static let mapBordersKey = "map.custom.borders"
+    private static let map3DBuildingsKey = "map.custom.buildings3d"
     private static let globeBackdropKey = "map.globe.backdrop"
     private static let globePlanesKey = "map.globe.planes"
 
@@ -342,6 +349,64 @@ final class FlightInfoAppearance: ObservableObject {
         abs(mapBrightness - MapLook.neutralBrightness) > 0.01
     }
 
+    // MARK: The map, edited — Pro. See `MapCustomisation`.
+
+    @Published var mapLight: MapLight {
+        didSet { UserDefaults.standard.set(mapLight.rawValue, forKey: Self.mapLightKey) }
+    }
+
+    @Published var mapTint: MapTint {
+        didSet { UserDefaults.standard.set(mapTint.rawValue, forKey: Self.mapTintKey) }
+    }
+
+    @Published var mapFont: MapFont {
+        didSet { UserDefaults.standard.set(mapFont.rawValue, forKey: Self.mapFontKey) }
+    }
+
+    @Published var mapShowsPlaceNames: Bool {
+        didSet { UserDefaults.standard.set(mapShowsPlaceNames, forKey: Self.mapPlaceNamesKey) }
+    }
+
+    @Published var mapShowsRoadNames: Bool {
+        didSet { UserDefaults.standard.set(mapShowsRoadNames, forKey: Self.mapRoadNamesKey) }
+    }
+
+    @Published var mapShowsBorders: Bool {
+        didSet { UserDefaults.standard.set(mapShowsBorders, forKey: Self.mapBordersKey) }
+    }
+
+    @Published var mapShows3DBuildings: Bool {
+        didSet { UserDefaults.standard.set(mapShows3DBuildings, forKey: Self.map3DBuildingsKey) }
+    }
+
+    /// Whether this account may edit the map. See `ProFeature.mapCustomise`.
+    var canCustomiseMap: Bool { Entitlements.shared.has(.mapCustomise) }
+
+    /// The customisation as stored, whether or not it is drawn.
+    var mapCustomisation: MapCustomisation {
+        MapCustomisation(
+            light: mapLight,
+            tint: mapTint,
+            font: mapFont,
+            showsPlaceNames: mapShowsPlaceNames,
+            showsRoadNames: mapShowsRoadNames,
+            showsBorders: mapShowsBorders,
+            shows3DBuildings: mapShows3DBuildings
+        )
+    }
+
+    /// Puts every edit back to the map as it comes.
+    func resetMapCustomisation() {
+        let standard = MapCustomisation.standard
+        mapLight = standard.light
+        mapTint = standard.tint
+        mapFont = standard.font
+        mapShowsPlaceNames = standard.showsPlaceNames
+        mapShowsRoadNames = standard.showsRoadNames
+        mapShowsBorders = standard.showsBorders
+        mapShows3DBuildings = standard.shows3DBuildings
+    }
+
     /// What colour the drawn planet is. See `GlobeSkin`.
     ///
     /// Its own axis rather than a fifth `MapPalette`, for the same reason the
@@ -425,7 +490,11 @@ final class FlightInfoAppearance: ObservableObject {
             palette: mapPalette.isPro && !isPro ? .auto : mapPalette,
             isTerrain: isMapTerrain,
             isDetailed: isMapDetailed,
-            brightness: mapBrightness
+            brightness: mapBrightness,
+            // Kept as made and drawn only with Pro, like everything else here:
+            // a lapsed subscription gets the standard map back without
+            // forgetting how it had been edited.
+            custom: canCustomiseMap ? mapCustomisation : .standard
         )
     }
 
@@ -593,6 +662,17 @@ final class FlightInfoAppearance: ObservableObject {
         globeBackdrop = GlobeBackdrop(rawValue: defaults.string(forKey: Self.globeBackdropKey) ?? "")
             ?? .app
         globeShowsPlanes = defaults.object(forKey: Self.globePlanesKey) as? Bool ?? true
+
+        // The map as it has always been drawn, for anybody who has not
+        // edited it.
+        let standard = MapCustomisation.standard
+        mapLight = MapLight(rawValue: defaults.string(forKey: Self.mapLightKey) ?? "") ?? standard.light
+        mapTint = MapTint(rawValue: defaults.string(forKey: Self.mapTintKey) ?? "") ?? standard.tint
+        mapFont = MapFont(rawValue: defaults.string(forKey: Self.mapFontKey) ?? "") ?? standard.font
+        mapShowsPlaceNames = defaults.object(forKey: Self.mapPlaceNamesKey) as? Bool ?? standard.showsPlaceNames
+        mapShowsRoadNames = defaults.object(forKey: Self.mapRoadNamesKey) as? Bool ?? standard.showsRoadNames
+        mapShowsBorders = defaults.object(forKey: Self.mapBordersKey) as? Bool ?? standard.showsBorders
+        mapShows3DBuildings = defaults.object(forKey: Self.map3DBuildingsKey) as? Bool ?? standard.shows3DBuildings
     }
 }
 

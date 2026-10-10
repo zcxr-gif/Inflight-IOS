@@ -44,6 +44,14 @@ enum Motion {
     /// about the fade being smooth rather than about the movement.
     static let content = Animation.spring(response: 0.26, dampingFraction: 0.95)
 
+    /// A picture arriving: a photograph finishing its download.
+    ///
+    /// Slower than `content`. A photo is the largest thing on the window, and
+    /// at the speed a number changes it reads as being stamped down rather
+    /// than coming into view. Critically damped, so it is a fade and nothing
+    /// else.
+    static let reveal = Animation.spring(response: 0.5, dampingFraction: 1)
+
     /// The map's own furniture — the dock, the toolbar, the bars that slide in
     /// over the top of it.
     static let chrome = Animation.spring(response: 0.36, dampingFraction: 0.88)

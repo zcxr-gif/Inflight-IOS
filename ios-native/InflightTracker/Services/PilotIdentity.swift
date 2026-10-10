@@ -20,7 +20,9 @@ final class PilotIdentity: ObservableObject {
 
     /// The display name as the user typed it. Matching is done on the
     /// lowercased form; this is what gets shown back to them.
-    @Published private(set) var username: String = ""
+    @Published private(set) var username: String = "" {
+        didSet { matchKey = username.lowercased() }
+    }
 
     /// Stored in the shared container rather than standard defaults so the
     /// widgets can eventually mark your own flight too.
@@ -29,13 +31,17 @@ final class PilotIdentity: ObservableObject {
     private init() {
         defaults = UserDefaults(suiteName: SharedStore.appGroupIdentifier) ?? .standard
         username = defaults.string(forKey: Self.key) ?? ""
+        matchKey = username.lowercased()
     }
 
     var isSet: Bool { !username.isEmpty }
 
     /// What comparisons are made against. Empty when nothing is set, which is
     /// deliberately a value that matches nothing rather than everything.
-    var matchKey: String { username.lowercased() }
+    ///
+    /// Kept rather than worked out on each read: `isMe` is asked about every
+    /// aircraft on the server, several times a packet.
+    private(set) var matchKey = ""
 
     /// Returns the cleaned name that was stored, or nil if it was unusable.
     ///
@@ -70,6 +76,13 @@ final class PilotIdentity: ObservableObject {
     func isMe(_ candidate: String?) -> Bool {
         guard isSet, let candidate = candidate, !candidate.isEmpty else { return false }
         return candidate.lowercased() == matchKey
+    }
+
+    /// Whether this aircraft's pilot is this user, against the name the feed
+    /// already lowercased — the form for a walk over the whole server.
+    func isMe(_ flight: Flight) -> Bool {
+        guard isSet, let key = flight.usernameKey else { return false }
+        return key == matchKey
     }
 
     /// Adopts the name stored against the signed-in account.

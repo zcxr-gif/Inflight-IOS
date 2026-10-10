@@ -1687,3 +1687,24 @@
 "GRADE" = "GRADE";
 "Terms" = "Terms";
 "Privacy" = "Privacy";
+
+/* Map window */
+"CUSTOMISE" = "CUSTOMISE";
+"PLANET" = "PLANET";
+"Time of day" = "Time of day";
+"Typeface" = "Typeface";
+"Place names" = "Place names";
+"Road names" = "Road names";
+"Borders" = "Borders";
+"3D buildings" = "3D buildings";
+"Reset" = "Reset";
+"Day" = "Day";
+"Standard" = "Standard";
+"Chart" = "Chart";
+"Sand" = "Sand";
+"Your map, your way" = "Your map, your way";
+"Light the map for dawn, dusk or night, recolour its water and land, set its names in another face, and choose which it draws." = "Light the map for dawn, dusk or night, recolour its water and land, set its names in another face, and choose which it draws.";
+"The globe is drawn in imagery, whatever is picked here." = "The globe is drawn in imagery, whatever is picked here.";
+"The planet has colours of its own, below." = "The planet has colours of its own, below.";
+"Satellite imagery has nothing to edit. Pick a drawn map to customise it." = "Satellite imagery has nothing to edit. Pick a drawn map to customise it.";
+"The globe takes the light, the names and the borders." = "The globe takes the light, the names and the borders.";

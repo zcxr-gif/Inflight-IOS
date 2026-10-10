@@ -1687,3 +1687,24 @@
 "GRADE" = "NOTE";
 "Terms" = "Conditions";
 "Privacy" = "Confidentialité";
+
+/* Map window */
+"CUSTOMISE" = "PERSONNALISER";
+"PLANET" = "PLANÈTE";
+"Time of day" = "Moment de la journée";
+"Typeface" = "Police";
+"Place names" = "Noms de lieux";
+"Road names" = "Noms de rues";
+"Borders" = "Frontières";
+"3D buildings" = "Bâtiments 3D";
+"Reset" = "Réinitialiser";
+"Day" = "Jour";
+"Standard" = "Standard";
+"Chart" = "Carte";
+"Sand" = "Sable";
+"Your map, your way" = "Votre carte, à votre façon";
+"Light the map for dawn, dusk or night, recolour its water and land, set its names in another face, and choose which it draws." = "Éclairez la carte pour l’aube, le crépuscule ou la nuit, recolorez l’eau et la terre, changez la police des noms et choisissez ceux qui s’affichent.";
+"The globe is drawn in imagery, whatever is picked here." = "Le globe est dessiné en imagerie, quel que soit le choix ici.";
+"The planet has colours of its own, below." = "La planète a ses propres couleurs, ci-dessous.";
+"Satellite imagery has nothing to edit. Pick a drawn map to customise it." = "L’imagerie satellite n’a rien à modifier. Choisissez une carte dessinée pour la personnaliser.";
+"The globe takes the light, the names and the borders." = "Le globe prend en compte la lumière, les noms et les frontières.";

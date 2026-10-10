@@ -71,6 +71,10 @@ struct FlightWindowDock<Content: View>: View {
 
     let onClose: () -> Void
 
+    /// Where the window tells the chrome standing on it how far a pull has
+    /// lowered it. See `FlightWindowTravel`.
+    var travel: FlightWindowTravel? = nil
+
     @ViewBuilder let content: Content
 
     /// How far the finger has carried the window, downwards positive. Let go
@@ -88,8 +92,13 @@ struct FlightWindowDock<Content: View>: View {
             // indicator sits in.
             let bottomBand = geometry.safeAreaInsets.bottom
             let full = max(geometry.size.height - FlightWindowDockMetrics.topGap, 0)
-            let resting = isExpanded ? full : min(peakHeight + bottomBand, full)
+            let peek = min(peakHeight + bottomBand, full)
+            let resting = isExpanded ? full : peek
             let height = drawnHeight(resting: resting, full: full)
+            let position = FlightWindowTravel.Position(
+                drop: max(peek - height, 0),
+                openness: full > peek ? min(max((height - peek) / (full - peek), 0), 1) : (isExpanded ? 1 : 0)
+            )
 
             // Deaf to touches everywhere but the window itself: the map is live
             // underneath and has to keep getting its pans and taps.
@@ -99,8 +108,21 @@ struct FlightWindowDock<Content: View>: View {
                     window(height: height)
                 }
                 .ignoresSafeArea(edges: .bottom)
+                .onChange(of: position) { _, position in report(position) }
+                .onAppear { report(position) }
         }
         .ignoresSafeArea(edges: .bottom)
+        .onDisappear { travel?.position = .resting }
+    }
+
+    /// Tells the chrome over the map where the window has got to: under the
+    /// finger exactly while the window is held, and on the window's own spring
+    /// once it is let go, so the two land together.
+    private func report(_ position: FlightWindowTravel.Position) {
+        guard let travel, travel.position != position else { return }
+        withTransaction(Transaction(animation: isHeld ? nil : Motion.chrome)) {
+            travel.position = position
+        }
     }
 
     /// Where the window is, with the finger taken into account. Down is free
@@ -188,5 +210,70 @@ struct FlightWindowDock<Content: View>: View {
                     }
                 }
             }
+    }
+}
+
+/// Where the flight window is right now, for the chrome floating over the map.
+///
+/// The corner controls stand on the window, and were stood on a number that
+/// only changed when the window settled: pull the window down and they hung
+/// in the air where its top edge had been, then dropped once it landed. And
+/// with the window all the way open they, and the weather chip, stayed up
+/// behind it. They read this instead — every frame of a pull, and on the
+/// window's spring when it lands — so they ride its edge down and dissolve as
+/// it opens. An object of its own, read by nothing but that chrome, so a pull
+/// redraws a few buttons rather than the whole screen on every frame.
+final class FlightWindowTravel: ObservableObject {
+
+    struct Position: Equatable {
+        /// How far below the peek the window's top edge is: what a pull down
+        /// has carried it.
+        var drop: CGFloat
+        /// How far from the peek to the full window it is, 0...1.
+        var openness: CGFloat
+
+        static let resting = Position(drop: 0, openness: 0)
+    }
+
+    @Published fileprivate(set) var position = Position.resting
+}
+
+/// Chrome that gives way to the window as it opens: fully there at the peek,
+/// gone by the time the window is most of the way up, and untouchable once it
+/// is faded. Back in the same way as the window comes down.
+struct FadesUnderFlightWindow: ViewModifier {
+    @ObservedObject var travel: FlightWindowTravel
+
+    /// Whether the window is up at all. Gone, the chrome is simply there —
+    /// and comes back on the window's spring as it leaves, rather than
+    /// appearing the moment it has.
+    let isActive: Bool
+
+    /// Faded out over the first part of the window's travel rather than all of
+    /// it, so nothing is left hanging half-visible over a window that has
+    /// nearly arrived.
+    static func opacity(for openness: CGFloat) -> Double {
+        Double(max(0, 1 - openness * 1.6))
+    }
+
+    func body(content: Content) -> some View {
+        let opacity = isActive ? Self.opacity(for: travel.position.openness) : 1
+        return content
+            .opacity(opacity)
+            .allowsHitTesting(opacity > 0.5)
+            .motion(Motion.chrome, value: isActive)
+    }
+}
+
+/// The corner controls: down with the window while it is pulled below the
+/// peek, and faded as it opens. See `FlightWindowTravel`.
+struct RidesFlightWindow: ViewModifier {
+    @ObservedObject var travel: FlightWindowTravel
+    let isActive: Bool
+
+    func body(content: Content) -> some View {
+        content
+            .offset(y: isActive ? travel.position.drop : 0)
+            .modifier(FadesUnderFlightWindow(travel: travel, isActive: isActive))
     }
 }

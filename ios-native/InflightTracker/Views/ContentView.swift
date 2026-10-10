@@ -80,6 +80,9 @@ struct ContentView: View {
     /// it.
     @State private var isWindowExpanded = false
 
+    /// How far a pull has lowered the window, for the controls standing on it.
+    @State private var flightWindowTravel = FlightWindowTravel()
+
     /// The size of the area the map and its chrome are laid out in — what a
     /// pane sizes itself against, and so what the map has to ask about to know
     /// how much of it a pane is covering. See `FlightWindowPaneMetrics.paneSize`.
@@ -90,7 +93,15 @@ struct ContentView: View {
 
     /// Which way the map is turned, in whole degrees clockwise from north —
     /// see `compassControl`.
-    @State private var mapBearing: Double = 0
+    ///
+    /// Held in a box rather than as state of this view. A pinch turns the map
+    /// a degree at a time, and every one of those used to redraw the whole of
+    /// this screen — mid-gesture, on the same main thread the map is drawn
+    /// from. Only the needle reads the number, so only the needle observes it;
+    /// everything else asks `isMapBearingOff`, which changes only as the
+    /// compass comes and goes.
+    @State private var mapBearing = MapBearing()
+    @State private var isMapBearingOff = false
 
     /// The ruler: whether it is down, and the leg it is measuring.
     @State private var measurement = MapMeasurement()
@@ -151,7 +162,14 @@ struct ContentView: View {
 
     /// The weather drawn under the traffic — which layer, and which frame of
     /// it while the radar is running.
-    @StateObject private var mapWeather = MapWeatherModel()
+    ///
+    /// Owned here but not watched from here. The radar steps a frame twice a
+    /// second, and this screen reads one thing off it — the tiles it hands the
+    /// map — so the map reads them itself (`WeatherTilesReader`), and the bar
+    /// and the planet watch the model on their own. Watched from here, every
+    /// step of the loop redrew the whole screen.
+    @StateObject private var mapWeatherOwner = Unobserved(MapWeatherModel())
+    private var mapWeather: MapWeatherModel { mapWeatherOwner.value }
     @State private var isWeatherExpanded = false
 
     /// Playback of the open aircraft's own track, started from the window and
@@ -230,7 +248,7 @@ struct ContentView: View {
 
         var seen = Set<String>()
         for flight in feed.flights {
-            guard let username = flight.username?.lowercased(), watched.contains(username) else { continue }
+            guard let username = flight.usernameKey, watched.contains(username) else { continue }
             seen.insert(username)
         }
 
@@ -246,6 +264,9 @@ struct ContentView: View {
 
     /// Raised from the avatar's menu, for an account without Pro.
     @State private var isShowingProPaywall = false
+
+    /// The map's own window — see `MapModesWindow`.
+    @State private var isShowingMapModes = false
 
     /// Raised when a locked map style is picked.
     @State private var isShowingStylePaywall = false
@@ -416,11 +437,26 @@ struct ContentView: View {
     /// aeroplane hidden by a filter it cannot possibly satisfy is a layer that
     /// looks broken. Real traffic has its own switch, and that switch is the
     /// whole of what decides whether it is drawn.
+    ///
+    /// Remembered against `trafficRevision`, which stamps everything this is
+    /// built from. The body runs on every keystroke, chip and replay tick, and
+    /// with a filter on — or the real sky behind the server — each of those
+    /// used to filter and copy the whole server again to hand the map the
+    /// array it already had.
     private var visibleFlights: [Flight] {
+        let revision = trafficRevision
+        if let cached = visibleFlightsCache.flights(for: revision) { return cached }
+
         let simulated = filters.apply(to: feed.flights, keeping: selection?.id)
-        guard !realWorld.flights.isEmpty else { return simulated }
-        return simulated + realWorld.flights
+        let flights = realWorld.flights.isEmpty ? simulated : simulated + realWorld.flights
+        visibleFlightsCache.store(flights, for: revision)
+        return flights
     }
+
+    /// Where `visibleFlights` keeps its last answer. A reference held in state
+    /// rather than state itself, so that remembering an answer is not a change
+    /// that redraws anything.
+    @State private var visibleFlightsCache = TrafficCache()
 
     /// Search runs over the whole packet rather than `visibleFlights` — a
     /// callsign you have typed out in full is one you want found, not one the
@@ -439,6 +475,10 @@ struct ContentView: View {
     private var trafficRevision: Int {
         var hasher = Hasher()
         hasher.combine(feed.lastUpdate)
+        // A switch of server empties the traffic without a packet, so it has
+        // to move this too, or the old server's aircraft stay drawn until the
+        // new one first says something.
+        hasher.combine(feed.server)
         hasher.combine(filters.signature)
         hasher.combine(selection?.id)
         // A sweep of real traffic landing changes what should be drawn without
@@ -720,6 +760,18 @@ struct ContentView: View {
 
     /// The map itself, under everything.
     private var map: some View {
+        // The replay's aeroplane is read inside a view of its own, so the
+        // playhead stepping along twenty times a second redraws the map and
+        // not this whole screen. See `FlightReplay.playhead`.
+        ReplayFrameReader(playhead: replay.playhead) { replayFrame in
+            WeatherTilesReader(model: mapWeather) { weatherTiles in
+                trackerMap(replayFrame: replayFrame, weatherTiles: weatherTiles)
+            }
+        }
+        .ignoresSafeArea()
+    }
+
+    private func trackerMap(replayFrame: FlightReplay.Frame?, weatherTiles: MapWeatherTiles?) -> TrackerMapView {
         TrackerMapView(
             flights: visibleFlights,
             selection: $selection,
@@ -729,7 +781,7 @@ struct ContentView: View {
             leadingInset: mapLeadingInset,
             trailingInset: mapTrailingInset,
             legalInset: mapLegalInset,
-            replayFrame: replay.frame,
+            replayFrame: replayFrame,
             isFollowing: isFollowingLive,
             onFollowEnded: { isFollowing = false },
             isChasing: isChasing && aircraftModels != .off,
@@ -754,9 +806,13 @@ struct ContentView: View {
             showsFlownPath: filters.showsFlownPath,
             markerLabels: filters.markerLabels,
             showsVaMarks: filters.showsVaMarks,
-            weatherTiles: mapWeather.tiles,
+            weatherTiles: weatherTiles,
             onCameraMoving: { mapWeather.report(cameraMoving: $0) },
-            onBearingChanged: { mapBearing = $0 },
+            onBearingChanged: { bearing in
+                mapBearing.degrees = bearing
+                let off = abs(bearing) >= 1
+                if off != isMapBearingOff { isMapBearingOff = off }
+            },
             // Where to sweep for real traffic, on the settle rather than
             // through the gesture. The planet reports the same pair from its
             // own camera, so the layer behaves the same on both shapes of the
@@ -782,7 +838,6 @@ struct ContentView: View {
             highlighting: highlighting,
             aircraftModels: aircraftModels
         )
-        .ignoresSafeArea()
     }
 
     /// The map underneath everything: Mapbox, or the planet the app draws
@@ -804,6 +859,13 @@ struct ContentView: View {
 
     /// The drawn planet, standing where Mapbox usually does.
     private var planet: some View {
+        ReplayFrameReader(playhead: replay.playhead) { replayFrame in
+            planetSurface(replayFrame: replayFrame)
+        }
+        .ignoresSafeArea()
+    }
+
+    private func planetSurface(replayFrame: FlightReplay.Frame?) -> PlanetSurface {
         PlanetSurface(
             weather: mapWeather,
             flights: visibleFlights,
@@ -817,7 +879,7 @@ struct ContentView: View {
             atcStations: filters.showsAtcBoundaries ? feed.atcStations : [],
             start: planetStart,
             command: mapCommand,
-            replayFrame: replay.frame,
+            replayFrame: replayFrame,
             // The same answer the flat map is given: the setting, and the
             // system's own request for less movement.
             smoothsTraffic: appearance.smoothsTraffic && !reduceMotion,
@@ -833,7 +895,6 @@ struct ContentView: View {
             },
             onTapEmpty: { tapEmptyMap() }
         )
-        .ignoresSafeArea()
     }
 
     /// A stamp of everything the planet's scene is built from. The map already
@@ -972,7 +1033,10 @@ struct ContentView: View {
             if isChromeHidden {
                 brandMark
             } else {
+                // The weather chip and the bars under it give way to the
+                // window as it opens, and come back as it goes down.
                 topChrome
+                    .modifier(FadesUnderFlightWindow(travel: flightWindowTravel, isActive: isFlightDockUp))
                 mapControls
                 mapStyleControl
                 mapToolbar
@@ -981,10 +1045,47 @@ struct ContentView: View {
             flightDock
             flightPane
             airportPane
+            mapModes
         }
         // What the panes are laid out in, so the map can be told exactly how
         // much of it they cover. See `mapAreaSize`.
         .onGeometryChange(for: CGSize.self) { $0.size } action: { mapAreaSize = $0 }
+        // An aeroplane opening takes the bottom of the screen, and the map's
+        // window gives it up.
+        .onChange(of: selection) { _, opened in
+            if opened != nil, isShowingMapModes { closeMapModes() }
+        }
+    }
+
+    /// The map's window, standing up from the bottom edge over the map it
+    /// changes. A tap on the map around it puts it away.
+    @ViewBuilder
+    private var mapModes: some View {
+        if isShowingMapModes {
+            ZStack(alignment: .bottom) {
+                Color.clear
+                    .contentShape(Rectangle())
+                    .onTapGesture { closeMapModes() }
+                    .accessibilityHidden(true)
+
+                MapModesWindow(
+                    onClose: { closeMapModes() },
+                    onProjectionChanged: { projection in
+                        // The ruler is a pair of points on the map's own
+                        // layers, so it has nowhere to be on the drawn planet.
+                        if projection.isDrawn { measurement = MapMeasurement() }
+                    }
+                )
+                .padding(.horizontal, 10)
+                .padding(.bottom, 10)
+            }
+            .transition(.move(edge: .bottom).combined(with: .opacity))
+            .zIndex(10)
+        }
+    }
+
+    private func closeMapModes() {
+        withAnimation(Motion.panel) { isShowingMapModes = false }
     }
 
     /// The flight window, on a screen wide enough to lay it out beside the map
@@ -1378,7 +1479,8 @@ struct ContentView: View {
                 theme: appearance.windowTheme,
                 peakHeight: peakHeight,
                 isExpanded: $isWindowExpanded,
-                onClose: { sheet = nil }
+                onClose: { sheet = nil },
+                travel: flightWindowTravel
             ) {
                 FlightDetailView(
                     flightId: selected.id,
@@ -1673,7 +1775,7 @@ struct ContentView: View {
         }
 
         let mine = feed.flights
-            .filter { identity.isMe($0.username) }
+            .filter { identity.isMe($0) }
             .sorted {
                 if $0.altitudeFeet != $1.altitudeFeet { return $0.altitudeFeet > $1.altitudeFeet }
                 return $0.id < $1.id
@@ -1733,7 +1835,7 @@ struct ContentView: View {
     /// feed has caught up.
     private func openPilot(_ username: String) {
         let wanted = username.lowercased()
-        guard let flight = feed.flights.first(where: { $0.username?.lowercased() == wanted }) else { return }
+        guard let flight = feed.flights.first(where: { $0.usernameKey == wanted }) else { return }
         sheet = nil
         selection = SelectedFlight(id: flight.id)
         focus(on: flight.coordinate, spanMeters: 240_000)
@@ -2135,46 +2237,6 @@ struct ContentView: View {
         }
     }
 
-    /// Switching the map, or being told why you cannot.
-    ///
-    /// The choice is still stored when it is refused, which is the point: the
-    /// paywall is opened *from* picking the globe, and buying Pro there leaves
-    /// you on the globe rather than back where you started having to pick it
-    /// again.
-    private func select(_ projection: MapProjection) {
-        appearance.mapProjection = projection
-        // The ruler is a pair of points on the map's own layers, so a measurement in
-        // progress has nowhere to be on the drawn planet. Put away rather than
-        // left up over a map that cannot answer it.
-        if projection.isDrawn { measurement = MapMeasurement() }
-        if projection.isPro, !entitlements.isPro {
-            stylePaywallFeature = .mapStyles
-            isShowingStylePaywall = true
-        }
-    }
-
-    private func select(_ palette: MapPalette) {
-        appearance.mapPalette = palette
-        if palette.isPro, !entitlements.isPro {
-            stylePaywallFeature = .mapStyles
-            isShowingStylePaywall = true
-        }
-    }
-
-    /// Whether a Pro choice is one this account cannot have yet. Shown rather
-    /// than hidden — you cannot want something you have never seen.
-    private func locked(_ isPro: Bool) -> Bool { isPro && !entitlements.isPro }
-
-    /// Whether the map is the planet, which is the one look that decides what
-    /// it is drawn in for itself.
-    /// Whether the map decides its own colours, which both round shapes do —
-    /// the globe because it is imagery whatever is picked, the planet because
-    /// it has a list of its own. Either way `MapPalette` has nothing to act on.
-    private var usesOwnPalette: Bool {
-        let projection = appearance.resolvedMapStyle.projection
-        return projection == .globe || projection == .planet
-    }
-
     /// The glyph on the corner button: the shape of the map when it is the
     /// planet, since that is the bigger fact about it, and otherwise whatever
     /// it is drawn in.
@@ -2189,84 +2251,6 @@ struct ContentView: View {
     private var mapStyleLabel: String {
         let style = appearance.resolvedMapStyle
         return "Map style, \(style.projection.label.lowercased()), \(style.resolvedPalette.label.lowercased())"
-    }
-
-    /// The planet's own three, for the style menu.
-    ///
-    /// In submenus rather than laid out in the menu itself: ten colours and
-    /// five backdrops is a good list to choose from and a terrible one to
-    /// scroll past on the way to something else.
-    ///
-    /// Lifted out of `mapStyleControl` for the same reason the map's insets
-    /// were lifted out of its argument list — Swift type-checks a view's body
-    /// as one expression, and this menu was already three sections and two
-    /// `ForEach`es deep before any of this was in it.
-    ///
-    /// All three are Pro — see `ProFeature.planetLook`. Shown rather than
-    /// hidden, and the tick follows what is *drawn* rather than what is stored,
-    /// so a free account is never shown a colour ticked on a planet that is not
-    /// wearing it. Choosing one still stores the choice and opens the paywall,
-    /// which is the same bargain the map's own Pro rows make: buying from there
-    /// leaves you on the thing you picked.
-    @ViewBuilder
-    private var planetStyleSection: some View {
-        if isPlanetMap {
-            Section {
-                Menu("Colour") {
-                    ForEach(GlobeSkin.allCases) { skin in
-                        Button {
-                            selectPlanet { appearance.globeSkin = skin }
-                        } label: {
-                            Label(
-                                L(skin.label),
-                                systemImage: appearance.resolvedGlobeSkin == skin
-                                    ? "checkmark"
-                                    : "circle.fill"
-                            )
-                        }
-                    }
-                }
-
-                Menu("Background") {
-                    ForEach(GlobeBackdrop.allCases) { backdrop in
-                        Button {
-                            selectPlanet { appearance.globeBackdrop = backdrop }
-                        } label: {
-                            Label(
-                                L(backdrop.label),
-                                systemImage: appearance.resolvedGlobeBackdrop == backdrop
-                                    ? "checkmark"
-                                    : backdrop.symbol
-                            )
-                        }
-                    }
-                }
-
-                Button {
-                    selectPlanet { appearance.globeShowsPlanes.toggle() }
-                } label: {
-                    Label(
-                        "Aircraft shapes",
-                        systemImage: appearance.resolvedGlobeShowsPlanes ? "checkmark" : "airplane"
-                    )
-                }
-            } header: {
-                // Said in the heading rather than badged on sixteen rows
-                // inside two submenus, where a badge would be a word in a menu
-                // item's title.
-                Text(L(appearance.canEditPlanet ? "Planet" : "Planet — Pro"))
-            }
-        }
-    }
-
-    /// Stores one of the planet's own choices, and asks for Pro if that is what
-    /// stands between the choice and the planet wearing it.
-    private func selectPlanet(_ change: () -> Void) {
-        change()
-        if !appearance.canEditPlanet {
-            stylePaywallFeature = .planetLook
-            isShowingStylePaywall = true
-        }
     }
 
     /// How the map is drawn, in the corner that holds the map's controls.
@@ -2343,98 +2327,15 @@ struct ContentView: View {
         }
     }
 
-    /// The map's shape and finish.
-    ///
-    /// A menu rather than a cycle button, and two lists in one menu: the shape
-    /// of the world, and what it is drawn in.
+    /// The map's shape and finish, and for Pro the map edited — in a window
+    /// of its own. See `MapModesWindow`.
     private var mapStyleMenu: some View {
-        Menu {
-            // Buttons rather than a `Picker` bound to the setting: some
-            // of these are Pro, and a binding would have already
-            // changed the map by the time anything could check. Each
-            // one decides for itself whether it is switching the map or
-            // opening the paywall.
-            Section("Shape") {
-                ForEach(MapProjection.allCases) { projection in
-                    Button {
-                        select(projection)
-                    } label: {
-                        Label(
-                            L(locked(projection.isPro) ? "\(projection.label) (Pro)" : projection.label),
-                            systemImage: appearance.mapProjection == projection
-                                ? "checkmark"
-                                : projection.symbol
-                        )
-                    }
-                }
-            }
-
-            // The flat map's finish, and only its. The globe is one
-            // look — see `MapLook.palette` — so on the planet these are
-            // shown ticked on Satellite and switched off rather than
-            // taken away: a section that vanishes reads as a feature
-            // that has gone missing, where a disabled one that agrees
-            // with what is on screen reads as an answer.
-            Section(L(usesOwnPalette ? "Map (flat only)" : "Map")) {
-                ForEach(MapPalette.allCases) { palette in
-                    Button {
-                        select(palette)
-                    } label: {
-                        Label(
-                            L(locked(palette.isPro) ? "\(palette.label) (Pro)" : palette.label),
-                            // What is drawn rather than what is stored,
-                            // so the tick is on Satellite while the
-                            // globe is up and back on the stored choice
-                            // the moment it is not.
-                            systemImage: appearance.resolvedMapStyle.resolvedPalette == palette
-                                ? "checkmark"
-                                : palette.symbol
-                        )
-                    }
-                    .disabled(usesOwnPalette)
-                }
-            }
-
-            planetStyleSection
-
-            Section {
-                // Nothing to turn up on imagery: it has no roads, no
-                // terrain shading and no emphasis to set.
-                Button {
-                    appearance.isMapDetailed.toggle()
-                } label: {
-                    Label(
-                        "Full detail",
-                        systemImage: appearance.isMapDetailed ? "checkmark" : "map.fill"
-                    )
-                }
-                .disabled(
-                    appearance.resolvedMapStyle.resolvedPalette.usesImagery || isPlanetMap
-                )
-
-                // Real height under the map, and a camera free to lean
-                // over and look along it.
-                //
-                // Shown ticked and disabled on the globe rather than
-                // hidden: elevation is what rounds the planet off at
-                // the edges, so the globe has always had it and there
-                // is nothing here to turn off. Hiding the row would
-                // make it look as though the globe had no terrain.
-                Button {
-                    appearance.isMapTerrain.toggle()
-                } label: {
-                    Label(
-                        "3D terrain",
-                        systemImage: appearance.resolvedMapStyle.hasTerrain
-                            ? "checkmark"
-                            : "mountain.2.fill"
-                    )
-                }
-                .disabled(usesOwnPalette)
-            }
+        Button {
+            withAnimation(Motion.panel) { isShowingMapModes = true }
         } label: {
-            mapControlFace(mapStyleSymbol, isOn: false)
+            mapControlFace(mapStyleSymbol, isOn: isShowingMapModes)
         }
+        .buttonStyle(.plain)
         .accessibilityLabel(L(mapStyleLabel))
     }
 
@@ -2623,8 +2524,23 @@ struct ContentView: View {
             // and one of the two is always zero.
             .padding(.trailing, 16 + mapTrailingInset)
             .padding(.bottom, flightWindowBottomInset + 8)
+            // Away altogether when even lying on its side the stack has no
+            // room between the window and the avatar — a peak tall enough to
+            // reach up into the corner — and back as soon as there is.
+            .opacity(hubFits ? 1 : 0)
+            .allowsHitTesting(hubFits)
+            .motion(Motion.chrome, value: hubFits)
+            // Down with the window while it is being pulled, back up with it
+            // when it is let go, and faded as it opens to the full window.
+            .modifier(RidesFlightWindow(travel: flightWindowTravel, isActive: isFlightDockUp))
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
             .motion(Motion.chrome, value: axis)
+            // On the window's own spring whenever the window changes height —
+            // a photograph landing, the peak re-measuring, the pane moving. The
+            // window glides to its new height; without this the controls
+            // standing on it were cut straight to theirs.
+            .motion(Motion.chrome, value: flightWindowBottomInset)
+            .motion(Motion.chrome, value: mapTrailingInset)
             .ignoresSafeArea(.keyboard, edges: .bottom)
             .transition(.opacity.combined(with: .scale(scale: 0.9, anchor: .bottomTrailing)))
         }
@@ -2633,7 +2549,7 @@ struct ContentView: View {
     /// Whether the map is turned away from north by enough to offer turning
     /// it back.
     private var isMapTurned: Bool {
-        !isPlanetMap && abs(mapBearing) >= 1
+        !isPlanetMap && isMapBearingOff
     }
 
     /// The compass: only there while the map is turned, its needle pointing
@@ -2644,21 +2560,15 @@ struct ContentView: View {
     @ViewBuilder
     private var compassControl: some View {
         if isMapTurned {
-            Button {
+            CompassButton(
+                bearing: mapBearing,
+                tint: theme.textPrimary,
+                size: CGSize(width: Self.cornerWidth, height: Self.cornerRowHeight)
+            ) {
                 // Facing north and riding behind the tail cannot both hold.
                 isChasing = false
                 mapCommand = MapCommand(kind: .northUp)
-            } label: {
-                Image(systemName: "location.north.line.fill")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(theme.textPrimary)
-                    .rotationEffect(.degrees(-mapBearing))
-                    .frame(width: Self.cornerWidth, height: Self.cornerRowHeight)
-                    .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Face north")
-            .accessibilityValue("The map is turned \(Int(abs(mapBearing))) degrees \(mapBearing > 0 ? "clockwise" : "anticlockwise")")
             .transition(.opacity)
         }
     }
@@ -2704,6 +2614,13 @@ struct ContentView: View {
         return height <= room ? .vertical : .horizontal
     }
 
+    /// Whether the hub has room at all: the height of the stack on its side,
+    /// between the top of the window and the avatar.
+    private var hubFits: Bool {
+        let room = mapAreaSize.height - (flightWindowBottomInset + 8) - Self.avatarClearance
+        return mapAreaSize.height <= 0 || room >= Self.cornerWidth
+    }
+
     /// The top of the map the hub has to keep out of: the top row's padding,
     /// the avatar, and a gap under it.
     private static let avatarClearance: CGFloat = 8 + 44 + 10
@@ -2718,14 +2635,19 @@ struct ContentView: View {
         return Button {
             aircraftModelsRaw = (isOn ? AircraftModelSource.off : .flightAirMap).rawValue
         } label: {
-            Text("3D")
+            // Says what pressing it does: 3D leans the map over to stand the
+            // aeroplanes up, and once it has, 2D lays it back down flat. The
+            // camera move itself is the map's — see `tiltForModels`.
+            Text(isOn ? "2D" : "3D")
                 .font(.system(size: 14, weight: .bold, design: .rounded))
                 .foregroundStyle(theme.textPrimary)
+                .contentTransition(.numericText())
                 .frame(width: Self.cornerWidth, height: Self.cornerWidth)
                 .background {
                     if isOn { Circle().fill(theme.accent.opacity(0.22)) }
                 }
                 .contentShape(Circle())
+                .motion(Motion.control, value: isOn)
         }
         .buttonStyle(.plain)
         .clipShape(Circle())
@@ -2813,4 +2735,79 @@ struct ContentView: View {
             .contentShape(Rectangle())
     }
 
+}
+
+/// Which way the map is turned, for the compass needle and nothing else — see
+/// `ContentView.mapBearing`.
+final class MapBearing: ObservableObject {
+    @Published var degrees: Double = 0
+}
+
+/// The compass, redrawn on its own as the map turns under it.
+private struct CompassButton: View {
+    @ObservedObject var bearing: MapBearing
+    let tint: Color
+    let size: CGSize
+    let action: () -> Void
+
+    var body: some View {
+        let degrees = bearing.degrees
+        Button(action: action) {
+            Image(systemName: "location.north.line.fill")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(tint)
+                .rotationEffect(.degrees(-degrees))
+                .frame(width: size.width, height: size.height)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Face north")
+        .accessibilityValue("The map is turned \(Int(abs(degrees))) degrees \(degrees > 0 ? "clockwise" : "anticlockwise")")
+    }
+}
+
+/// The map's traffic, kept against the stamp it was built from — see
+/// `ContentView.visibleFlights`.
+final class TrafficCache {
+    private var revision: Int?
+    private var flights: [Flight] = []
+
+    func flights(for revision: Int) -> [Flight]? {
+        self.revision == revision ? flights : nil
+    }
+
+    func store(_ flights: [Flight], for revision: Int) {
+        self.revision = revision
+        self.flights = flights
+    }
+}
+
+/// Hands its content the replay's current frame, and redraws only itself as
+/// the playhead moves — see `FlightReplay.playhead`.
+private struct ReplayFrameReader<Content: View>: View {
+    @ObservedObject var playhead: FlightReplay.Playhead
+    let content: (FlightReplay.Frame?) -> Content
+
+    var body: some View {
+        content(playhead.frame)
+    }
+}
+
+/// Hands its content the radar's current tiles, and redraws only itself as the
+/// loop steps — see `ContentView.mapWeather`.
+private struct WeatherTilesReader<Content: View>: View {
+    @ObservedObject var model: MapWeatherModel
+    let content: (MapWeatherTiles?) -> Content
+
+    var body: some View {
+        content(model.tiles)
+    }
+}
+
+/// Owns an object for the life of a view without the view redrawing when that
+/// object changes — for something a view keeps alive but leaves its children
+/// to watch. Never publishes.
+final class Unobserved<Value: AnyObject>: ObservableObject {
+    let value: Value
+    init(_ value: Value) { self.value = value }
 }

@@ -146,7 +146,7 @@ final class WidgetBridge: ObservableObject {
     /// airport lookups behind it — happens here, in the app, where there is
     /// time for it; the widget process only ever reads finished numbers.
     func update(flights: [Flight], atcStations: [AtcStation] = []) {
-        let friendUsernames = Set(FriendsStore.shared.friends)
+        let friendUsernames = FriendsStore.shared.watched
         let identity = PilotIdentity.shared
 
         var pinned: WidgetFlight?
@@ -155,13 +155,13 @@ final class WidgetBridge: ObservableObject {
 
         for flight in flights {
             let isPinned = flight.id == pinnedFlightId
-            let isFriend = flight.username.map { friendUsernames.contains($0.lowercased()) } ?? false
+            let isFriend = flight.usernameKey.map { friendUsernames.contains($0) } ?? false
             // Carried so a widget can be pointed at "whatever I am flying"
             // without anybody having to pin anything — see the configuration
             // intent in the widget extension. The name check is the same one
             // the map's find-me button makes, and costs nothing at all for the
             // many people who have not filled a name in.
-            let isMine = identity.isSet && identity.isMe(flight.username)
+            let isMine = identity.isMe(flight)
             guard isPinned || isFriend || isMine else { continue }
 
             let converted = WidgetFlight(flight: flight)

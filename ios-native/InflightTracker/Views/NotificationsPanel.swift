@@ -113,13 +113,13 @@ struct NotificationsPanel: View {
     }
 
     private func findSubject() -> Flight? {
-        if identity.isSet, let mine = feed.flights.first(where: { identity.isMe($0.username) }) {
+        if identity.isSet, let mine = feed.flights.first(where: { identity.isMe($0) }) {
             return mine
         }
         let watched = friends.watched
         guard !watched.isEmpty else { return nil }
         return feed.flights.first { flight in
-            guard let username = flight.username?.lowercased() else { return false }
+            guard let username = flight.usernameKey else { return false }
             return watched.contains(username)
         }
     }

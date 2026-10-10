@@ -241,7 +241,8 @@ struct MapStyleSettingsPanel: View {
             palette: palette,
             isTerrain: appearance.isMapTerrain,
             isDetailed: appearance.isMapDetailed,
-            brightness: appearance.mapBrightness
+            brightness: appearance.mapBrightness,
+            custom: appearance.resolvedMapStyle.custom
         )
     }
 

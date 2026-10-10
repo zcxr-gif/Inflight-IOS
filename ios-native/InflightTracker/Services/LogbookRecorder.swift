@@ -156,7 +156,7 @@ final class LogbookRecorder: ObservableObject {
             return
         }
 
-        let mine = flights.first { PilotIdentity.shared.isMe($0.username) }
+        let mine = flights.first { PilotIdentity.shared.isMe($0) }
 
         guard let flight = mine else {
             closeIfVanished()

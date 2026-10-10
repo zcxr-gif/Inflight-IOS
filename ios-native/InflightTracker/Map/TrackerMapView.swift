@@ -388,6 +388,7 @@ struct TrackerMapView: UIViewRepresentable {
             VaMarkStore.shared.stopObservingMarks(self)
             AircraftModelStore.shared.stopObserving(self)
             pendingSettle?.cancel()
+            isTouchingMap = false
         }
 
         /// The style has loaded — the first one, or a new one after a change
@@ -502,15 +503,31 @@ struct TrackerMapView: UIViewRepresentable {
         private func applyOrnaments(on mapView: MapView) {
             let insets = (bottom: parent.legalInset, leading: parent.leadingInset)
             if let applied = appliedOrnamentInsets, applied == insets { return }
+            let isFirst = appliedOrnamentInsets == nil
             appliedOrnamentInsets = insets
 
             let x = 10 + insets.leading
             let y = insets.bottom + 4
-            mapView.ornaments.options.logo.position = .bottomLeading
-            mapView.ornaments.options.logo.margins = CGPoint(x: x, y: y)
-            mapView.ornaments.options.attributionButton.position = .bottomLeading
+            // Written as one change rather than four: each assignment to the
+            // options re-lays every ornament's constraints.
+            var options = mapView.ornaments.options
+            options.logo.position = .bottomLeading
+            options.logo.margins = CGPoint(x: x, y: y)
+            options.attributionButton.position = .bottomLeading
             // Past the logo, which is about ninety points of wordmark.
-            mapView.ornaments.options.attributionButton.margins = CGPoint(x: x + 92, y: y)
+            options.attributionButton.margins = CGPoint(x: x + 92, y: y)
+            mapView.ornaments.options = options
+
+            // The new constraints are in; laying them out inside a spring is
+            // what carries the logo up with the window instead of cutting it
+            // there. The same response as `Motion.chrome`, which is what the
+            // window itself and the corner controls move on, so the three
+            // travel as one. Not on the first placement, which has nowhere to
+            // come from, and not for somebody who has asked for less movement.
+            guard !isFirst, !UIAccessibility.isReduceMotionEnabled else { return }
+            UIView.animate(springDuration: 0.36, bounce: 0, options: [.beginFromCurrentState, .allowUserInteraction]) {
+                mapView.layoutIfNeeded()
+            }
         }
 
         // MARK: Look
@@ -830,6 +847,16 @@ struct TrackerMapView: UIViewRepresentable {
         private var isRegionChanging = false
         private var pendingSettle: DispatchWorkItem?
 
+        /// Whether a finger is on the map right now.
+        ///
+        /// A drag that pauses for longer than the settle window is still a
+        /// drag, and the settle's work — every field rewritten, the pavement,
+        /// the winds, the weather, a sweep of real traffic, the radar loop
+        /// restarted — landing under a finger that is about to move again is
+        /// a dropped frame in the middle of the gesture. So the settle waits
+        /// for the finger to lift, and the lift schedules it.
+        private var isTouchingMap = false
+
         private func cameraDidChange() {
             guard let mapView = mapView, let map = map else { return }
             let bounds = mapView.bounds
@@ -904,6 +931,8 @@ struct TrackerMapView: UIViewRepresentable {
 
             let work = DispatchWorkItem { [weak self] in
                 guard let self = self, let map = self.map else { return }
+                // The lift schedules this again.
+                guard !self.isTouchingMap else { return }
                 if self.isRegionChanging {
                     self.isRegionChanging = false
                     self.parent.onCameraMoving(false)
@@ -964,7 +993,7 @@ struct TrackerMapView: UIViewRepresentable {
         /// callsign, pilot and source — so a packet rebuilds only the ones that
         /// changed rather than looking every aircraft on the server up in the
         /// VA directory again.
-        private var trafficSignatures: [String: String] = [:]
+        private var trafficSignatures: [String: TrafficSignature] = [:]
 
         /// Packets since every aeroplane's properties were last rebuilt. A
         /// sweep every so often picks up what nothing announces — a VA
@@ -998,15 +1027,13 @@ struct TrackerMapView: UIViewRepresentable {
                 appliedLabelMode = parent.markerLabels
                 appliedVaMarks = parent.showsVaMarks
                 if appliedModelSource != parent.aircraftModels {
+                    let previous = appliedModelSource
                     appliedModelSource = parent.aircraftModels
                     applyGestures(for: parent.style)
-                    // Back to level on a look that does not tilt, now there is
-                    // nothing standing up to tilt for.
                     if parent.aircraftModels == .off { AircraftModelStore.disarmCrashGuard() }
-                    if parent.aircraftModels == .off, !parent.style.isPitchEnabled,
-                       let mapView = mapView, mapView.mapboxMap.cameraState.pitch != 0 {
-                        mapView.camera.ease(to: CameraOptions(pitch: 0), duration: 0.4)
-                    }
+                    // Not on the first pass: a map opening with the models
+                    // already on was not asked to move.
+                    if let previous { tiltForModels(wereOn: previous != .off) }
                 }
                 trafficPropertiesStale = true
             }
@@ -1020,6 +1047,44 @@ struct TrackerMapView: UIViewRepresentable {
                 if packetsSinceSweep >= Self.packetsPerSweep { trafficPropertiesStale = true }
             }
             pushTraffic()
+        }
+
+        /// How far over the camera leans when the models go on: far enough to
+        /// see an aeroplane from the side rather than from above, short of the
+        /// horizon filling the screen.
+        private static let modelsPitch: CGFloat = 60
+
+        /// Moves the camera to suit the models switching on or off.
+        ///
+        /// On, it leans over — to the open aircraft, when there is one, framed
+        /// in the clear part of the map — because a model seen straight down
+        /// is the same plan view the flat icon was, and the switch would look
+        /// like it had done nothing. Off, it comes back to level whatever the
+        /// look, since the button now reads 2D and a flat map is what it says.
+        /// Eased slowly enough to read as the camera moving, not the map
+        /// jumping; the way the map is turned is left alone either way.
+        private func tiltForModels(wereOn: Bool) {
+            guard let mapView = mapView, let map = map else { return }
+            let isOn = parent.aircraftModels != .off
+            guard isOn != wereOn else { return }
+
+            guard isOn else {
+                guard map.cameraState.pitch != 0 else { return }
+                mapView.camera.ease(to: CameraOptions(pitch: 0), duration: 0.8, curve: .easeInOut)
+                return
+            }
+
+            // The chase puts the camera behind the tail itself.
+            guard !parent.isChasing else { return }
+            var camera = CameraOptions(pitch: Self.modelsPitch)
+            if let flight = selectedFlight() {
+                let coordinate = drawnCoordinate(for: flight)
+                if CLLocationCoordinate2DIsValid(coordinate) {
+                    camera.center = coordinate
+                    camera.padding = edgeInsets(in: mapView.bounds)
+                }
+            }
+            mapView.camera.ease(to: camera, duration: 0.9, curve: .easeInOut)
         }
 
         /// A packet: new aeroplanes added, the rest told where they were
@@ -1074,8 +1139,24 @@ struct TrackerMapView: UIViewRepresentable {
             }
         }
 
-        private static func signature(of flight: Flight) -> String {
-            "\(flight.spriteKey)|\(flight.callsign ?? "")|\(flight.username ?? "")|\(flight.origin == .infiniteFlight)"
+        /// What an aeroplane's properties are built from. A struct compared
+        /// field by field rather than a string interpolated per aircraft per
+        /// packet: the comparison is the same answer, and the string was a few
+        /// thousand allocations on the main thread every time a packet landed.
+        struct TrafficSignature: Equatable {
+            let spriteKey: String
+            let callsign: String?
+            let username: String?
+            let origin: Flight.Origin
+        }
+
+        private static func signature(of flight: Flight) -> TrafficSignature {
+            TrafficSignature(
+                spriteKey: flight.spriteKey,
+                callsign: flight.callsign,
+                username: flight.username,
+                origin: flight.origin
+            )
         }
 
         /// The aeroplanes the traffic source currently holds, so a packet can
@@ -3338,6 +3419,7 @@ extension TrackerMapView.Coordinator: GestureManagerDelegate {
     /// A pinch, a rotation or a tilt only pauses it: the camera glides back
     /// onto the aeroplane when the gesture is done.
     func gestureManager(_ gestureManager: GestureManager, didBegin gestureType: GestureType) {
+        if gestureType != .singleTap { isTouchingMap = true }
         guard parent.isFollowing else { return }
         switch gestureType {
         case .pan:
@@ -3352,6 +3434,12 @@ extension TrackerMapView.Coordinator: GestureManagerDelegate {
     }
 
     func gestureManager(_ gestureManager: GestureManager, didEnd gestureType: GestureType, willAnimate: Bool) {
+        if isTouchingMap {
+            isTouchingMap = false
+            // A fling carries on moving the camera, and each of those changes
+            // pushes the settle back; a plain lift is the end of it.
+            scheduleSettle()
+        }
         if !willAnimate { resumeFollowAfterGesture() }
     }
 

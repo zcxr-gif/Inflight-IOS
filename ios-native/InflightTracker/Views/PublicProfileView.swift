@@ -98,7 +98,7 @@ struct PublicProfileView: View {
     /// "someone flying under that name" rather than as a fact about them.
     private var flying: Flight? {
         guard let name = profile?.ifUsername?.lowercased(), !name.isEmpty else { return nil }
-        return feed.flights.first { $0.username?.lowercased() == name }
+        return feed.flights.first { $0.usernameKey == name }
     }
 
     var body: some View {

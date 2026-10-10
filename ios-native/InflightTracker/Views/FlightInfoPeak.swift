@@ -48,26 +48,21 @@ struct FlightInfoPeak: View {
     /// the other two peeks have nowhere to put a departure time.
     var began: Date? = nil
 
-    /// Width of the photo. Its height follows the photo's own aspect ratio, so
-    /// a square shot and a wide airliner shot both sit in the row properly
-    /// instead of being cropped to one fixed box.
+    /// The photo's box. One shape, whatever the photograph's own is.
     ///
-    /// The clamp is deliberately narrow: the sheet is only as tall as this row
-    /// plus the card, so a very tall crop would buy empty space beside the
-    /// text rather than a better photo.
+    /// It used to take the photograph's ratio, which meant the box was one
+    /// size while the photo loaded and another once it had — the row, and the
+    /// whole sheet with it, grew under the picture as it arrived, and again
+    /// whenever the carousel turned to a shot of a different shape. Fixed, the
+    /// photo fades into a frame that was already there. An ordinary side-on
+    /// shot loses a sliver of sky to fill it; anything stranger is fitted onto
+    /// its blurred backdrop — see `AircraftPhotoImage.cropTolerance`.
     private let thumbnailWidth: CGFloat = 148
+    private let thumbnailHeight: CGFloat = 88
 
     /// Which of the photographs the bar's thumbnail is showing. Its own state,
     /// not the header's: the two are never on screen at the same time.
     @State private var thumbnailPage = 0
-
-    private var thumbnailHeight: CGFloat {
-        guard let image = image, image.size.width > 0, image.size.height > 0 else {
-            return 88
-        }
-        let ratio = image.size.height / image.size.width
-        return min(max(thumbnailWidth * ratio, 76), 96)
-    }
 
     /// The peak lays out to exactly the height it wants, bottom gap included,
     /// and the sheet is sized to what this measures. Nothing here stretches to

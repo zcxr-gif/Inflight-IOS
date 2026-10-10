@@ -158,9 +158,9 @@ struct WidgetsPanel: View {
         var theirs: [Flight] = []
 
         for flight in feed.flights {
-            if identity.isMe(flight.username) {
+            if identity.isMe(flight) {
                 mine.append(flight)
-            } else if let name = flight.username?.lowercased(), watched.contains(name) {
+            } else if let name = flight.usernameKey, watched.contains(name) {
                 theirs.append(flight)
             }
         }
