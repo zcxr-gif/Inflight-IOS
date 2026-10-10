@@ -492,16 +492,20 @@ struct FlightHero: View {
 
     private var isGallery: Bool { photos.count > 1 }
 
-    /// Takes the photo's own shape where it can, so a fitted photo fills the
-    /// header edge to edge instead of sitting between blurred bars. Extremes
-    /// are clamped — a panoramic shot may not eat the whole sheet.
+    /// One shape for the header, whatever the photograph's is.
     ///
-    /// Measured from the first photograph even in a gallery: the others are
-    /// fitted into the height it sets. A header that resized itself under your
-    /// thumb as you paged through shots of different shapes would be a worse
-    /// thing than a little letterboxing.
+    /// It used to take the photograph's own ratio — which made it one height
+    /// while the photo loaded and another once it had, so the header, and the
+    /// peak's whole sheet with it, spread open under the picture as it
+    /// arrived. A header that changes size because a download finished is a
+    /// layout jumping, not an image loading. Fixed, the photo fades into room
+    /// that was already there: an ordinary side-on airliner shot trims a
+    /// little sky to fill it, and a shape far from it is fitted onto its own
+    /// blurred backdrop — see `AircraftPhotoImage.cropTolerance`.
     ///
-    /// The peak state hands in a ceiling; the full window does not.
+    /// `image` is no longer read, and is kept so the call sites say what the
+    /// header is showing. The peak state hands in a ceiling; the full window
+    /// does not.
     ///
     /// A window that scrolls can afford whatever shape the photograph is. The
     /// peak cannot: it does not scroll, so every point the header takes comes
@@ -509,17 +513,17 @@ struct FlightHero: View {
     /// them to push the card off the bottom of the sheet. Clamped here rather
     /// than by cutting the picture, so what is shown is the whole aeroplane at
     /// a height the rest of the peak can live with.
+    /// Height over width. A little squarer than the 3:2 most aircraft photos
+    /// are shot at, so the common case fills the frame by trimming sky rather
+    /// than leaving bars.
+    static let shape: CGFloat = 0.62
+
     static func height(
         for width: CGFloat,
         image: UIImage?,
         ceiling: CGFloat = .greatestFiniteMagnitude
     ) -> CGFloat {
-        guard let image = image, image.size.width > 0, image.size.height > 0 else {
-            return min(min(max(width * 0.56, 190), 250), ceiling)
-        }
-
-        let ratio = image.size.height / image.size.width
-        return min(min(max(width * ratio, 180), 300), ceiling)
+        min(min(max(width * Self.shape, 190), 280), ceiling)
     }
 
     var body: some View {
@@ -540,12 +544,10 @@ struct FlightHero: View {
                     spriteKey: spriteKey,
                     theme: theme,
                     iconSize: 64,
-                    // Airliner photos are wide, and a frame that cropped one to
-                    // a fixed box would take the nose and tail off. `.fit` is
-                    // the promise not to: the header is already sized to this
-                    // photograph's own ratio, so it fills edge to edge anyway,
-                    // and a shot of a shape the header cannot take gets the
-                    // blurred backdrop rather than the scissors.
+                    // `.fit` is the promise not to take the nose and tail off:
+                    // a shot near the header's shape trims sky to fill it, and
+                    // one the header cannot take gets the blurred backdrop
+                    // rather than the scissors.
                     contentMode: .fit
                 )
             }
@@ -991,20 +993,13 @@ struct AircraftPhotoImage: View {
     /// answers. Nil is the placeholder, which is a state like any other.
     private var identity: ObjectIdentifier? { image.map(ObjectIdentifier.init) }
 
-    /// How a photograph arrives.
+    /// How a photograph arrives: it fades up over whatever was in its place.
     ///
-    /// It used to not arrive at all — it was simply there on the frame after
-    /// the one where the download finished, which is a cut, and a cut in the
-    /// biggest thing on the window reads as a glitch rather than as an image
-    /// loading. A photograph fades up over whatever was in its place and
-    /// settles the last three per cent of its size as it does, which is a
-    /// picture coming into focus rather than one being stamped down.
-    ///
-    /// Three per cent is chosen to be felt and not seen: the frame is clipped,
-    /// so the overscan never shows, and anything larger starts to read as the
-    /// photo zooming, which is a claim about the picture rather than about it
-    /// arriving.
-    private static let arrival: AnyTransition = .opacity.combined(with: .scale(scale: 1.03))
+    /// A plain dissolve. It used to settle the last three per cent of its size
+    /// as it faded, which next to a frame that was also changing height read
+    /// as the picture spreading open and then snapping to rest. The frame no
+    /// longer moves (see `FlightHero.height`), and the picture does not either.
+    private static let arrival: AnyTransition = .opacity
 
     var body: some View {
         // The frame is measured rather than assumed. Whether a photograph can
@@ -1030,11 +1025,11 @@ struct AircraftPhotoImage: View {
             .clipped()
         }
         .contentShape(Rectangle())
-        // `Motion.content` is the app's own curve for anything cross-fading,
-        // and it honours Reduce Motion — which matters here more than usual,
+        // `Motion.reveal` is the app's curve for a picture arriving, and it
+        // honours Reduce Motion — which matters here more than usual,
         // because somebody who has asked for less movement should get the
-        // photograph immediately rather than watching it breathe.
-        .motion(Motion.content, value: identity)
+        // photograph immediately rather than watching it fade in.
+        .motion(Motion.reveal, value: identity)
     }
 
     /// Whether this photograph is close enough to the frame's own shape to fill

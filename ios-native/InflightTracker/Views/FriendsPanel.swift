@@ -65,7 +65,7 @@ struct FriendsPanel: View {
 
         var found: [String: [Flight]] = [:]
         for flight in feed.flights {
-            guard let username = flight.username?.lowercased(), watched.contains(username) else { continue }
+            guard let username = flight.usernameKey, watched.contains(username) else { continue }
             found[username, default: []].append(flight)
         }
 

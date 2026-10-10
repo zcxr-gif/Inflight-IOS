@@ -251,7 +251,7 @@ struct PulsePanel: View {
             return flight
         }
         let name = entry.pilotName.lowercased()
-        return feed.flights.first { $0.username?.lowercased() == name }
+        return feed.flights.first { $0.usernameKey == name }
     }
 
     private func liveLine(_ live: Flight?) -> String {

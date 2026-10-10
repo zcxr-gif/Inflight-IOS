@@ -88,7 +88,7 @@ struct PilotListPanel: View {
     /// once the list is on screen, which is why it is not done in `load`.
     private func isFlying(_ pilot: PilotSummary) -> Bool {
         guard let name = pilot.ifUsername?.lowercased(), !name.isEmpty else { return false }
-        return feed.flights.contains { $0.username?.lowercased() == name }
+        return feed.flights.contains { $0.usernameKey == name }
     }
 
     @MainActor
@@ -222,7 +222,7 @@ struct PilotSearchPanel: View {
 
     private func isFlying(_ pilot: PilotSummary) -> Bool {
         guard let name = pilot.ifUsername?.lowercased(), !name.isEmpty else { return false }
-        return feed.flights.contains { $0.username?.lowercased() == name }
+        return feed.flights.contains { $0.usernameKey == name }
     }
 }
 

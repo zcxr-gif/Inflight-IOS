@@ -75,13 +75,31 @@ final class FlightReplay: ObservableObject {
 
     @Published private(set) var isPlaying = false
 
-    /// 0...1 along the track. Written by the ticker, and by the scrubber.
-    @Published var progress: Double = 0
-
     @Published var pace: Pace = .normal
 
-    /// The current instant, recomputed whenever `progress` moves.
-    @Published private(set) var frame: Frame?
+    /// Where playback has got to, on an object of its own.
+    ///
+    /// The ticker moves this twenty times a second. Published from here, each
+    /// of those redrew everything that watches the replay — which includes the
+    /// whole of the main screen, for the sake of the one aeroplane and the one
+    /// slider that actually move. The screen watches this object for whether a
+    /// replay is running; the map, the planet and the bar watch the playhead.
+    final class Playhead: ObservableObject {
+
+        /// 0...1 along the track. Written by the ticker, and by the scrubber.
+        @Published fileprivate(set) var progress: Double = 0
+
+        /// The current instant, recomputed whenever `progress` moves.
+        @Published fileprivate(set) var frame: Frame?
+    }
+
+    let playhead = Playhead()
+
+    /// 0...1 along the track. Read it here; watch it on `playhead`.
+    var progress: Double { playhead.progress }
+
+    /// The current instant. Read it here; watch it on `playhead`.
+    var frame: Frame? { playhead.frame }
 
     var isActive: Bool { flightId != nil }
 
@@ -116,8 +134,8 @@ final class FlightReplay: ObservableObject {
         self.points = points
         self.flightId = flightId
         self.title = title
-        self.progress = 0
-        self.frame = Self.frame(at: 0, in: points)
+        playhead.progress = 0
+        playhead.frame = Self.frame(at: 0, in: points)
 
         play()
         return true
@@ -141,8 +159,8 @@ final class FlightReplay: ObservableObject {
         flightId = nil
         title = ""
         points = []
-        frame = nil
-        progress = 0
+        playhead.frame = nil
+        playhead.progress = 0
     }
 
     func togglePlay() {
@@ -161,15 +179,15 @@ final class FlightReplay: ObservableObject {
     /// from playback rather than fighting the ticker for the same value.
     func scrub(to value: Double) {
         pause()
-        progress = min(max(value, 0), 1)
-        frame = Self.frame(at: progress, in: points)
+        playhead.progress = min(max(value, 0), 1)
+        playhead.frame = Self.frame(at: progress, in: points)
     }
 
     private func play() {
         guard points.count >= Self.minimumPoints else { return }
 
         // Replaying from the end would sit on the last frame doing nothing.
-        if progress >= 0.999 { progress = 0 }
+        if progress >= 0.999 { playhead.progress = 0 }
 
         isPlaying = true
 
@@ -190,16 +208,16 @@ final class FlightReplay: ObservableObject {
         let next = progress + step
 
         guard next < 1 else {
-            progress = 1
-            frame = Self.frame(at: 1, in: points)
+            playhead.progress = 1
+            playhead.frame = Self.frame(at: 1, in: points)
             // Held at the end rather than looped: a replay that starts over
             // without being asked is a replay you have to catch to stop.
             pause()
             return
         }
 
-        progress = next
-        frame = Self.frame(at: next, in: points)
+        playhead.progress = next
+        playhead.frame = Self.frame(at: next, in: points)
     }
 
     // MARK: - Frames
