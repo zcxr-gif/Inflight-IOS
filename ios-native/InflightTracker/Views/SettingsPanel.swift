@@ -51,6 +51,9 @@ struct SettingsPanel: View {
     /// that out — see `RealWorldTrafficSettingsPanel`.
     @ObservedObject private var realWorld = RealWorldTraffic.shared
 
+    /// Rich Presence. Its rows are only built in a build that can do it.
+    @ObservedObject private var discord = DiscordPresence.shared
+
     /// Every one of these opens over this panel rather than replacing it: they
     /// are somewhere you go and come back from, and losing the settings sheet
     /// to get to one would make coming back a matter of finding it again.
@@ -122,6 +125,11 @@ struct SettingsPanel: View {
                     detail: plansDetail
                 ) {
                     isShowingPlans = true
+                }
+
+                if discord.isAvailable {
+                    PanelDivider()
+                    discordRows
                 }
             }
             .panelEntrance(2)
@@ -411,6 +419,56 @@ struct SettingsPanel: View {
     /// The next flight rather than a count, because "EGLL → KJFK, Friday 18:00"
     /// is the thing somebody opened Settings to check, and a hub that answers
     /// the question without being opened has already done its job.
+    /// "Playing Inflight" on the person's Discord profile. A link button until
+    /// an account is linked; after that a switch, and a way back out.
+    @ViewBuilder
+    private var discordRows: some View {
+        switch discord.link {
+        case .unavailable:
+            EmptyView()
+        case .unlinked, .linking, .failed:
+            PanelActionRow(
+                title: "Show on Discord",
+                symbol: "gamecontroller",
+                detail: discordLinkDetail
+            ) {
+                discord.linkAccount()
+            }
+        case .connecting, .live:
+            PanelToggleRow(
+                title: "Show on Discord",
+                symbol: "gamecontroller",
+                detail: discordLiveDetail,
+                isOn: $discord.isEnabled
+            )
+
+            PanelDivider()
+
+            PanelActionRow(
+                title: "Unlink Discord",
+                symbol: "xmark.circle",
+                detail: "Takes the card down and forgets the account."
+            ) {
+                discord.unlinkAccount()
+            }
+        }
+    }
+
+    private var discordLinkDetail: String {
+        switch discord.link {
+        case .linking: return "Waiting for Discord…"
+        case .failed(let reason): return "Couldn't link: \(reason)"
+        default: return "Your flight, or the one you're watching, as \u{201C}Playing Inflight\u{201D} on your profile."
+        }
+    }
+
+    private var discordLiveDetail: String {
+        guard discord.isEnabled else { return "Off. Your account stays linked." }
+        return discord.link == .live
+            ? "On your profile while Inflight is open."
+            : "Connecting to Discord…"
+    }
+
     private var plansDetail: String {
         guard accounts.isSignedIn else { return "Sign in to keep your plans." }
 

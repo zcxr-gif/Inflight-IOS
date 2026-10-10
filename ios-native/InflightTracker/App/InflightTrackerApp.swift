@@ -51,6 +51,8 @@ struct InflightTrackerApp: App {
 private struct RootView: View {
 
     @Environment(\.colorScheme) private var systemScheme
+    @Environment(\.scenePhase) private var scenePhase
+    @EnvironmentObject private var feed: LiveFeed
     @ObservedObject private var appearance = FlightInfoAppearance.shared
     @ObservedObject private var terms = TermsStore.shared
     @ObservedObject private var launch = LaunchGate.shared
@@ -100,9 +102,17 @@ private struct RootView: View {
                 // Publishes to the profile only if they have switched sharing
                 // on, and deletes rather than hides when they switch it off.
                 LiveStatusPublisher.shared.start()
+
+                // Rich Presence on the person's Discord profile, if they have
+                // linked an account and left it on. Does nothing otherwise —
+                // not even in a build that has the SDK.
+                DiscordPresence.shared.start(feed: feed)
             }
             .onChange(of: systemScheme) { _, scheme in
                 appearance.adopt(systemScheme: scheme)
+            }
+            .onChange(of: scenePhase) { _, phase in
+                if phase == .active { DiscordPresence.shared.didBecomeActive() }
             }
     }
 }

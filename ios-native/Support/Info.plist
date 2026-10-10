@@ -29,6 +29,11 @@
 	     can override. -->
 	<key>MBXAccessToken</key>
 	<string>$(MAPBOX_ACCESS_TOKEN)</string>
+	<!-- The Discord application Rich Presence publishes under, from the
+	     DISCORD_APP_ID build setting in project.yml. Empty switches the
+	     feature off. See DISCORD.md. -->
+	<key>DiscordApplicationID</key>
+	<string>$(DISCORD_APP_ID)</string>
 	<!-- Lets the map run at 120 Hz on a ProMotion iPhone. Without it iOS caps
 	     every display link in the app at 60, however smooth the renderer
 	     underneath could have been. -->
@@ -122,6 +127,22 @@
 				<string>inflight</string>
 			</array>
 		</dict>
+		<!-- Where Discord sends someone back after they approve the link:
+		     discord-<application id>:/authorize/callback. -->
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLName</key>
+			<string>com.tracker.Inflight.discord</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>discord-$(DISCORD_APP_ID)</string>
+			</array>
+		</dict>
+	</array>
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>discord</string>
 	</array>
 </dict>
 </plist>

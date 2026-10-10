@@ -1088,6 +1088,9 @@ struct ContentView: View {
             // flying a path nothing on screen refers to.
             if replay.isActive, id != replay.flightId { replay.stop() }
 
+            // What the person's Discord card says they are watching.
+            DiscordPresence.shared.watching(id)
+
             // Every way into a flight window ends here — the map, search, a
             // field's board, the stats list — so this is the one place the
             // view is counted for the most-watched list.

@@ -65,6 +65,12 @@ targets:
         product: MapboxMaps
       - target: InflightWidgets
         embed: true
+      # Discord's Social SDK, for Rich Presence. Not in the repository until
+      # somebody downloads it from the Discord developer portal — see
+      # DISCORD.md — and the app builds without it, so this stays commented
+      # out until the framework is in Vendor/.
+      # - framework: Vendor/discord_partner_sdk.xcframework
+      #   embed: true
 
     settings:
       base:
@@ -84,6 +90,9 @@ targets:
         # MAPBOX_ACCESS_TOKEN environment variable when that is set, which is
         # how a dedicated, URL-unrestricted iOS token goes in — see
         # codemagic.yaml.
+        # The Discord application for Rich Presence. Empty keeps it off; see
+        # DISCORD.md for the rest of what switching it on takes.
+        DISCORD_APP_ID: ""
         MAPBOX_ACCESS_TOKEN: "pk.eyJ1Ijoic2VydmVybm9vYiIsImEiOiJjbWN6YnVzcTMwNnEwMnJvZ2N5OXlhdnpiIn0.Nn3bZwHhbjTsnudkj0L1ig"
 
   # Home-screen widgets, lock-screen accessories and the Live Activity.

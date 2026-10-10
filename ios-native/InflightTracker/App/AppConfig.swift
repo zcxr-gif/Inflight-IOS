@@ -557,4 +557,22 @@ enum AppConfig {
     /// boundary, an aircraft sitting on it — or the map's own region jittering
     /// across it — flips between added and removed on consecutive passes.
     static let flightKeepMargin: Double = 1.35
+
+    // MARK: - Discord
+
+    /// The Discord application Rich Presence is published under, from the
+    /// `DISCORD_APP_ID` build setting by way of Info.plist. Nil while that is
+    /// empty, which keeps the feature switched off entirely — see DISCORD.md.
+    static let discordApplicationId: UInt64? = {
+        guard let text = Bundle.main.object(forInfoDictionaryKey: "DiscordApplicationID") as? String,
+              let id = UInt64(text.trimmingCharacters(in: .whitespaces)), id != 0 else { return nil }
+        return id
+    }()
+
+    /// Art asset keys for the presence card, uploaded in the Discord developer
+    /// portal under Rich Presence → Art Assets. A key Discord doesn't have
+    /// simply draws no image.
+    static let discordLargeImageKey = "inflight"
+    static let discordFlyingImageKey = "flying"
+    static let discordWatchingImageKey = "watching"
 }
