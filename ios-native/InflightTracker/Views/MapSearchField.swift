@@ -160,7 +160,7 @@ struct MapSearchResultsCard: View {
     var body: some View {
         VStack(spacing: 0) {
             if results.isEmpty {
-                Text("Nothing matching \"\(query)\"")
+                Text(Lf("Nothing matching “%@”", query))
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(theme.textDim)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -222,12 +222,12 @@ struct MapSearchResultsCard: View {
                 .frame(width: 20)
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(title)
+                Text(L(title))
                     .font(.system(size: 14, weight: .bold, design: .rounded))
                     .foregroundStyle(theme.textPrimary)
                     .flightInfoLine(minimumScale: 0.7)
 
-                Text(detail)
+                Text(L(detail))
                     .font(.system(size: 10.5, weight: .medium))
                     .foregroundStyle(theme.textDim)
                     .flightInfoLine(minimumScale: 0.7)
@@ -235,7 +235,7 @@ struct MapSearchResultsCard: View {
             .frame(maxWidth: .infinity, alignment: .leading)
 
             if let trailing = trailing {
-                Text(trailing)
+                Text(L(trailing))
                     .font(.system(size: 9.5, weight: .semibold, design: .monospaced))
                     .foregroundStyle(theme.textSecondary)
                     .fixedSize()

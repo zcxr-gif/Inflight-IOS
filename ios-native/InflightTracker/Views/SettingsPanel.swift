@@ -361,7 +361,7 @@ struct SettingsPanel: View {
 
     private var feedDetail: String {
         guard feed.status.isLive else { return feed.status.label }
-        return "\(feed.server) · \(feed.flights.count) aircraft"
+        return Lf("%@ · %@ aircraft", feed.server, String(feed.flights.count))
     }
 
     /// What the home screen is currently pointed at, without opening the
@@ -371,7 +371,7 @@ struct SettingsPanel: View {
 
         if let id = widgets.pinnedFlightId {
             let pinned = feed.flights.first { $0.id == id }
-            parts.append(pinned.map { "showing \($0.displayName)" } ?? "pinned flight has ended")
+            parts.append(pinned.map { Lf("showing %@", $0.displayName) } ?? "pinned flight has ended")
         }
         if let icao = widgets.pinnedAirportIcao {
             parts.append(icao)
@@ -384,7 +384,7 @@ struct SettingsPanel: View {
     }
 
     private var aboutDetail: String {
-        "Version \(SettingsSummary.version), credits and the documents"
+        Lf("Version %@, credits and the documents", SettingsSummary.version)
     }
 
     /// What the notifications row says without being opened.
@@ -403,7 +403,7 @@ struct SettingsPanel: View {
 
     private var feedSummary: String {
         guard feed.status.isLive else { return feed.status.label }
-        return "\(feed.flights.count) aircraft · \(feed.server)"
+        return Lf("%@ aircraft · %@", String(feed.flights.count), feed.server)
     }
 
     /// What the row says under its title.

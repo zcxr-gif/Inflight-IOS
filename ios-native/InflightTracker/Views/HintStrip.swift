@@ -62,7 +62,7 @@ struct HintStrip: View {
                     // top-aligned glyph misses next to text this small.
                     .padding(.top, 1)
 
-                Text(hint.text)
+                Text(L(hint.text))
                     .font(.system(size: 10.5, weight: .medium))
                     .foregroundStyle(theme.textDim)
                     .fixedSize(horizontal: false, vertical: true)

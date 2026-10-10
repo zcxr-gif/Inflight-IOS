@@ -36,7 +36,7 @@ struct WeatherFieldLegend: View {
                 .foregroundStyle(theme.textPrimary)
 
             VStack(alignment: .leading, spacing: 4) {
-                Text(title)
+                Text(L(title))
                     .font(.system(size: 9.5, weight: .semibold))
                     .foregroundStyle(theme.textSecondary)
                     .tracking(0.6)
@@ -51,7 +51,7 @@ struct WeatherFieldLegend: View {
 
                 HStack(spacing: 0) {
                     ForEach(Array(marks.enumerated()), id: \.offset) { index, mark in
-                        Text(mark)
+                        Text(L(mark))
                             .font(.system(size: 9, weight: .medium, design: .monospaced))
                             .foregroundStyle(theme.textDim)
                         if index < marks.count - 1 { Spacer(minLength: 0) }

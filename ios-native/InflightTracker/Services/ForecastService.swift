@@ -615,12 +615,12 @@ final class ForecastService: ObservableObject {
         let summary: String
         if isWetNow {
             if let dry = steps.first(where: { $0.amountMM < threshold }) {
-                summary = "\(word) easing \(relative(dry.date))."
+                summary = Lf("%@ easing %@.", "\(word)", "\(relative(dry.date))")
             } else {
-                summary = "\(word) for the next two hours."
+                summary = Lf("%@ for the next two hours.", "\(word)")
             }
         } else if let wet = steps.first(where: { $0.amountMM >= threshold }) {
-            summary = "\(word) starting \(relative(wet.date))."
+            summary = Lf("%@ starting %@.", "\(word)", "\(relative(wet.date))")
         } else {
             summary = "Nothing falling in the next two hours."
         }
@@ -637,7 +637,7 @@ final class ForecastService: ObservableObject {
         let minutes = Int((date.timeIntervalSinceNow / 60).rounded())
         if minutes <= 5 { return "now" }
         if minutes <= 15 { return "shortly" }
-        return "in about \(Int((Double(minutes) / 15).rounded()) * 15) minutes"
+        return Lf("in about %@ minutes", "\(Int((Double(minutes) / 15).rounded()) * 15)")
     }
 
     // MARK: - The next ten days

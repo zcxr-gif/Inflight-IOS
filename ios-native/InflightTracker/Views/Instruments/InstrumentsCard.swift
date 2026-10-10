@@ -145,11 +145,11 @@ struct InstrumentsPanel: View {
     private var header: some View {
         HStack(spacing: 10) {
             VStack(alignment: .leading, spacing: 2) {
-                Text(flight?.displayName ?? "—")
+                Text(L(flight?.displayName ?? "—"))
                     .font(.system(size: 18, weight: .heavy, design: .rounded))
                     .foregroundStyle(InstrumentPalette.scale)
 
-                Text(preferences.display.longLabel)
+                Text(L(preferences.display.longLabel))
                     .font(.system(size: 10, weight: .semibold))
                     .tracking(0.6)
                     .foregroundStyle(InstrumentPalette.scaleDim)
@@ -186,7 +186,7 @@ struct InstrumentsPanel: View {
                 .padding(.horizontal, 4)
             }
         } else {
-            Text(attitudeNote)
+            Text(L(attitudeNote))
                 .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(InstrumentPalette.scaleDim)
                 .multilineTextAlignment(.center)
@@ -227,7 +227,7 @@ struct InstrumentDisplaySwitch: View {
                 Button {
                     preferences.display = option
                 } label: {
-                    Text(option.label)
+                    Text(L(option.label))
                         .font(.system(size: 10, weight: .bold, design: .monospaced))
                         .tracking(0.5)
                         .foregroundStyle(selected ? theme.onAccent : theme.textSecondary)
@@ -240,7 +240,7 @@ struct InstrumentDisplaySwitch: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel(option.longLabel)
+                .accessibilityLabel(L(option.longLabel))
                 .accessibilityAddTraits(selected ? [.isSelected] : [])
             }
         }
@@ -264,7 +264,7 @@ struct InstrumentRangeControls: View {
                 Button {
                     preferences.navigationMode = mode
                 } label: {
-                    Text(mode.label)
+                    Text(L(mode.label))
                         .font(.system(size: 10, weight: .bold, design: .monospaced))
                         .foregroundStyle(selected ? theme.onAccent : theme.textSecondary)
                         .frame(width: 46, height: 26)
@@ -306,7 +306,7 @@ struct InstrumentRangeControls: View {
         .buttonStyle(.plain)
         .disabled(!available)
         .opacity(available ? 1 : 0.35)
-        .accessibilityLabel(step > 0 ? "Increase range" : "Decrease range")
+        .accessibilityLabel(L(step > 0 ? "Increase range" : "Decrease range"))
     }
 }
 

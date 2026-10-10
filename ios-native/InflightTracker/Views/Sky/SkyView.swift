@@ -104,7 +104,11 @@ struct SkyView: View {
 
     private var theme: FlightInfoTheme { appearance.theme }
 
-    var body: some View {
+    /// Geometry, not reading order: in Arabic or Urdu a mirrored instrument would
+    /// show bank, heading or bearing the wrong way round.
+    var body: some View { drawing.environment(\.layoutDirection, .leftToRight) }
+
+    @ViewBuilder private var drawing: some View {
         GeometryReader { proxy in
             ZStack {
                 Color.black.ignoresSafeArea()
@@ -302,7 +306,7 @@ struct SkyView: View {
 
             if nearby.isEmpty, notice == nil {
                 SkyChip(
-                    text: "Nothing flying within \(range.label) of \(vantageName)",
+                    text: Lf("Nothing flying within %@ of %@", "\(range.label)", "\(vantageName)"),
                     symbol: "binoculars.fill",
                     theme: theme
                 )
@@ -329,7 +333,7 @@ struct SkyView: View {
                         Button {
                             vantage = .flight(id: flight.id, name: flight.displayName)
                         } label: {
-                            Label(flight.displayName, systemImage: "airplane")
+                            Label(L(flight.displayName), systemImage: "airplane")
                         }
                     }
                 }
@@ -340,14 +344,14 @@ struct SkyView: View {
                     Button {
                         vantage = .airport(icao: field)
                     } label: {
-                        Label("Stand at \(field)", systemImage: "mappin.and.ellipse")
+                        Label(Lf("Stand at %@", "\(field)"), systemImage: "mappin.and.ellipse")
                     }
                 }
             }
         } label: {
             SkyChip(text: vantageName, symbol: vantageSymbol, theme: theme)
         }
-        .accessibilityLabel("Looking from \(vantageName)")
+        .accessibilityLabel(Lf("Looking from %@", "\(vantageName)"))
     }
 
     private var rangeMenu: some View {
@@ -356,7 +360,7 @@ struct SkyView: View {
                 Button {
                     range = option
                 } label: {
-                    Label(option.label, systemImage: option == range ? "checkmark" : "scope")
+                    Label(L(option.label), systemImage: option == range ? "checkmark" : "scope")
                 }
             }
         } label: {
@@ -583,7 +587,7 @@ private struct SkyField: View {
 
         return ZStack {
             ForEach(horizon(rotation: rotation, focal: focal)) { mark in
-                Text(mark.label)
+                Text(L(mark.label))
                     .font(.system(size: 15, weight: .heavy, design: .rounded))
                     .foregroundStyle(.white.opacity(0.7))
                     .shadow(color: .black.opacity(0.6), radius: 2)

@@ -52,7 +52,7 @@ struct FiltersPanel: View {
 
         MapPanel(
             title: "Filters",
-            subtitle: "\(tally.shown) of \(feed.flights.count) aircraft shown",
+            subtitle: Lf("%@ of %@ aircraft shown", String(tally.shown), String(feed.flights.count)),
             accessory: filters.isFiltering ? AnyView(resetButton) : nil
         ) {
             PanelSection(title: "PHASE") {

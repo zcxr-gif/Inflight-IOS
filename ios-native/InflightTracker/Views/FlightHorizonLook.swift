@@ -358,7 +358,7 @@ struct HorizonSettingsRows: View {
                             .contentShape(Circle())
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel(preset.name)
+                    .accessibilityLabel(L(preset.name))
                     .accessibilityAddTraits(preset.hex == current ? .isSelected : [])
                 }
 
@@ -456,7 +456,7 @@ struct WindowBackgroundRows: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 10) {
                 PhotosPicker(selection: $pick, matching: .images) {
-                    Label(store.image == nil ? "Choose an image" : "Replace image", systemImage: "photo.badge.plus")
+                    Label(L(store.image == nil ? "Choose an image" : "Replace image"), systemImage: "photo.badge.plus")
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(theme.textPrimary)
                         .padding(.horizontal, 12)
@@ -486,7 +486,7 @@ struct WindowBackgroundRows: View {
             }
 
             if let problem = problem ?? profiles.problem.flatMap({ profiles.uploading == nil ? $0 : nil }) {
-                Text(problem)
+                Text(L(problem))
                     .font(.system(size: 10.5, weight: .medium))
                     .foregroundStyle(theme.textDim)
             } else if store.image == nil {
@@ -495,7 +495,7 @@ struct WindowBackgroundRows: View {
                     .foregroundStyle(theme.textDim)
             }
 
-            Label(sharingLine, systemImage: shares ? "person.2.fill" : "sparkles")
+            Label(L(sharingLine), systemImage: shares ? "person.2.fill" : "sparkles")
                 .font(.system(size: 10.5, weight: .medium))
                 .foregroundStyle(theme.textDim)
         }

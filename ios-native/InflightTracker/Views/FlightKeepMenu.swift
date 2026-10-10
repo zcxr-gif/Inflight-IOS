@@ -80,7 +80,7 @@ struct FlightKeepMenu: View {
                     toggleWatch(pilot)
                 } label: {
                     Label(
-                        isWatching ? "Stop watching \(pilot)" : "Watch \(pilot)",
+                        L(isWatching ? Lf("Stop watching %@", pilot) : Lf("Watch %@", pilot)),
                         systemImage: watchSymbol
                     )
                 }
@@ -94,7 +94,7 @@ struct FlightKeepMenu: View {
                 }
             } label: {
                 Label(
-                    isBannering ? "Stop the live banner" : "Live banner",
+                    L(isBannering ? "Stop the live banner" : "Live banner"),
                     systemImage: isBannering ? "livephoto.slash" : "livephoto"
                 )
             }
@@ -104,7 +104,7 @@ struct FlightKeepMenu: View {
                 widgets.pin(isPinned ? nil : flight.id)
             } label: {
                 Label(
-                    isPinned ? "Unpin from the widget" : "Pin to the widget",
+                    L(isPinned ? "Unpin from the widget" : "Pin to the widget"),
                     systemImage: isPinned ? "pin.slash" : "pin"
                 )
             }
@@ -116,7 +116,7 @@ struct FlightKeepMenu: View {
             }
         }
         .accessibilityLabel("Keep hold of this flight")
-        .accessibilityValue(accessibilityState)
+        .accessibilityValue(L(accessibilityState))
         .sheet(isPresented: $isShowingPaywall) { ProPanel(highlighted: .watchlist) }
     }
 
@@ -133,7 +133,7 @@ struct FlightKeepMenu: View {
 
     private var accessibilityState: String {
         var running: [String] = []
-        if isWatching, let pilot = pilot { running.append("watching \(pilot)") }
+        if isWatching, let pilot = pilot { running.append(Lf("watching %@", pilot)) }
         if isBannering { running.append("live banner on") }
         if isPinned { running.append("pinned to the widget") }
         return running.isEmpty ? "Nothing running" : running.joined(separator: ", ")

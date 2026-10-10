@@ -125,7 +125,7 @@ struct FlightWidgetPeek: View {
         // The tile is one thing to read, not eight. Said as the widget's own
         // summary rather than as a list of its labels.
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(summary(tile))
+        .accessibilityLabel(L(summary(tile)))
     }
 
     // MARK: - Who
@@ -133,7 +133,7 @@ struct FlightWidgetPeek: View {
     private func header(_ tile: WidgetFlight) -> some View {
         HStack(alignment: .top) {
             VStack(alignment: .leading, spacing: 1) {
-                Text(tile.callsign)
+                Text(L(tile.callsign))
                     .font(WidgetType.title(15))
                     .foregroundStyle(WidgetPalette.text)
                     .flightInfoWidgetLine()
@@ -141,7 +141,7 @@ struct FlightWidgetPeek: View {
                     // than replacing it, the same as every other peek.
                     .motionWords(tile.callsign)
 
-                Text(descriptor(tile))
+                Text(L(descriptor(tile)))
                     .font(WidgetType.caption(10))
                     .foregroundStyle(WidgetPalette.secondary)
                     .flightInfoWidgetLine()
@@ -195,7 +195,7 @@ struct FlightWidgetPeek: View {
             VStack(alignment: .leading, spacing: 1) {
                 countdown(tile)
 
-                Text(footnote(tile))
+                Text(L(footnote(tile)))
                     .font(WidgetType.caption(10))
                     .foregroundStyle(WidgetPalette.dim)
                     .flightInfoWidgetLine()
@@ -221,7 +221,7 @@ struct FlightWidgetPeek: View {
     private func countdown(_ tile: WidgetFlight) -> some View {
         if tile.isAirborne, let remaining = enroute(tile) {
             HStack(alignment: .firstTextBaseline, spacing: 4) {
-                Text(WidgetFormat.duration(remaining))
+                Text(L(WidgetFormat.duration(remaining)))
                     .font(WidgetType.readout(17))
                     .foregroundStyle(WidgetPalette.text)
                     .flightInfoWidgetLine()
@@ -232,7 +232,7 @@ struct FlightWidgetPeek: View {
                     .foregroundStyle(WidgetPalette.secondary)
             }
         } else {
-            Text(tile.isAirborne ? "Arriving" : tile.phaseLabel)
+            Text(L(tile.isAirborne ? "Arriving" : tile.phaseLabel))
                 .font(WidgetType.readout(17))
                 .foregroundStyle(WidgetPalette.text)
                 .flightInfoWidgetLine()
@@ -280,7 +280,7 @@ struct FlightWidgetPeek: View {
             if !tile.registration.isEmpty { return tile.registration }
             return "No route filed"
         }
-        return "\(WidgetFormat.number(tile.remainingNM)) NM to run"
+        return Lf("%@ NM to run", WidgetFormat.number(tile.remainingNM))
     }
 
     private func summary(_ tile: WidgetFlight) -> String {

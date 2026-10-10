@@ -22,12 +22,12 @@ struct MapWeatherBar: View {
                 .foregroundStyle(theme.textPrimary)
 
             if let message = model.unavailable {
-                Text(message)
+                Text(L(message))
                     .font(.system(size: 10.5, weight: .medium))
                     .foregroundStyle(theme.textSecondary)
                     .flightInfoLine(minimumScale: 0.7)
             } else {
-                Text(label)
+                Text(L(label))
                     .font(.system(size: 11, weight: .semibold, design: .monospaced))
                     .foregroundStyle(theme.textPrimary)
                     .fixedSize()
@@ -71,9 +71,9 @@ struct MapWeatherBar: View {
         guard minutes < 360 else { return dayLabel(for: time) }
 
         switch minutes {
-        case ..<(-1): return "+\(-minutes) MIN"
+        case ..<(-1): return Lf("+%@ MIN", String(-minutes))
         case -1...1: return "NOW"
-        default: return "−\(minutes) MIN"
+        default: return Lf("−%@ MIN", String(minutes))
         }
     }
 
@@ -88,7 +88,7 @@ struct MapWeatherBar: View {
         switch days {
         case ..<1: return "TODAY"
         case 1: return "YESTERDAY"
-        default: return "−\(days) DAYS"
+        default: return Lf("−%@ DAYS", String(days))
         }
     }
 
@@ -124,6 +124,6 @@ struct MapWeatherBar: View {
         }
         .frame(width: 96, height: 18)
         .accessibilityLabel("Radar frame")
-        .accessibilityValue(label)
+        .accessibilityValue(L(label))
     }
 }

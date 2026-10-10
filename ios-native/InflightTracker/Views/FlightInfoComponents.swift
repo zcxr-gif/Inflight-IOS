@@ -19,7 +19,7 @@ struct FlightPhaseChip: View {
                 .fill(theme.phaseAccent(for: phase))
                 .frame(width: 5, height: 5)
 
-            Text(phase.rawValue)
+            Text(L(phase.rawValue))
                 .font(.system(size: 9, weight: .bold))
                 .tracking(0.7)
                 .foregroundStyle(theme.textPrimary)
@@ -64,7 +64,7 @@ struct NatTrackChip: View {
                     .fill(Color(uiColor: NatTrackStyle.colour(for: track.name)))
                     .frame(width: 5, height: 5)
 
-                Text(label(track))
+                Text(L(label(track)))
                     .font(.system(size: 9, weight: .bold))
                     .tracking(0.7)
                     .foregroundStyle(theme.textPrimary)
@@ -80,8 +80,8 @@ struct NatTrackChip: View {
     }
 
     private func label(_ track: NatTrack) -> String {
-        if compact { return "TRACK \(track.name)" }
-        return FlightPhase.from(flight) == .cruise ? "CRUISING TRACK \(track.name)" : "ON TRACK \(track.name)"
+        if compact { return Lf("TRACK %@", track.name) }
+        return FlightPhase.from(flight) == .cruise ? Lf("CRUISING TRACK %@", track.name) : Lf("ON TRACK %@", track.name)
     }
 }
 
@@ -101,7 +101,7 @@ struct PilotStateChip: View {
             Image(systemName: state.symbol)
                 .font(.system(size: 7.5, weight: .semibold))
 
-            Text(state.label)
+            Text(L(state.label))
                 .font(.system(size: 8.5, weight: .bold))
                 .tracking(0.6)
         }
@@ -206,7 +206,7 @@ struct RouteCard: View {
                 }
             }
 
-            Text(aircraftLine)
+            Text(L(aircraftLine))
                 .font(.system(size: 10.5, weight: .medium))
                 .foregroundStyle(theme.textDim)
                 .flightInfoLine(minimumScale: 0.7)
@@ -264,7 +264,7 @@ struct RouteCard: View {
             // destination controlled" is a question about the field, and the
             // name line is already carrying a flag and a chevron.
             HStack(alignment: .firstTextBaseline, spacing: 6) {
-                Text(code.isEmpty ? "———" : code)
+                Text(L(code.isEmpty ? "———" : code))
                     .font(.system(size: icaoSize, weight: .heavy, design: .rounded))
                     .foregroundStyle(theme.textPrimary)
                     .flightInfoLine(minimumScale: 0.6)
@@ -274,9 +274,9 @@ struct RouteCard: View {
 
             HStack(spacing: 4) {
                 if let flag = airport?.flag, !flag.isEmpty {
-                    Text(flag).font(.system(size: 9))
+                    Text(L(flag)).font(.system(size: 9))
                 }
-                Text((airport?.name ?? "Unknown").uppercased())
+                Text(L((airport?.name ?? "Unknown").uppercased()))
                     .font(.system(size: 9, weight: .semibold))
                     .tracking(0.4)
                     .foregroundStyle(theme.textDim)
@@ -394,7 +394,7 @@ struct PlaceCard: View {
                 // starts rolling, and the field under it changes as one passes
                 // from one to the next. Both are words about the same thing, so
                 // both cross rather than cut.
-                Text(kicker)
+                Text(L(kicker))
                     .font(.system(size: 8.5, weight: .bold))
                     .tracking(0.7)
                     .foregroundStyle(theme.textDim)
@@ -402,7 +402,7 @@ struct PlaceCard: View {
                     .motionWords(kicker)
 
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    Text(airport?.icao ?? "———")
+                    Text(L(airport?.icao ?? "———"))
                         .font(.system(size: icaoSize, weight: .heavy, design: .rounded))
                         .foregroundStyle(theme.textPrimary)
                         .flightInfoLine(minimumScale: 0.6)
@@ -417,9 +417,9 @@ struct PlaceCard: View {
 
                 HStack(spacing: 4) {
                     if let flag = airport?.flag, !flag.isEmpty {
-                        Text(flag).font(.system(size: 9))
+                        Text(L(flag)).font(.system(size: 9))
                     }
-                    Text((airport?.name ?? "Position unknown").uppercased())
+                    Text(L((airport?.name ?? "Position unknown").uppercased()))
                         .font(.system(size: 9, weight: .semibold))
                         .tracking(0.4)
                         .foregroundStyle(theme.textDim)
@@ -858,7 +858,7 @@ struct FlightIdentityBlock: View {
         HStack(alignment: .bottom, spacing: 10) {
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 8) {
-                    Text(flight.displayName)
+                    Text(L(flight.displayName))
                         .font(.system(size: 21, weight: .heavy, design: .rounded))
                         .foregroundStyle(theme.textPrimary)
                         .flightInfoLine(minimumScale: 0.6)
@@ -874,7 +874,7 @@ struct FlightIdentityBlock: View {
                     // all, and the only way to tell an A320 from a 777 was to
                     // recognise the photograph.
                     if !typeCode.isEmpty {
-                        Text(typeCode)
+                        Text(L(typeCode))
                             .font(.system(size: 10, weight: .bold, design: .monospaced))
                             .foregroundStyle(theme.textSecondary)
                             .padding(.horizontal, 6)
@@ -901,7 +901,7 @@ struct FlightIdentityBlock: View {
                 // Where the flight is in its day. The type is in the chip
                 // above; the full name and the livery are at the foot of the
                 // route card, when there is one.
-                Text(stateLine)
+                Text(L(stateLine))
                     .font(.system(size: 10.5, weight: .medium))
                     .foregroundStyle(theme.textDim)
                     .flightInfoLine()
@@ -909,7 +909,7 @@ struct FlightIdentityBlock: View {
             .frame(maxWidth: .infinity, alignment: .leading)
 
             if !registration.isEmpty {
-                Text(registration)
+                Text(L(registration))
                     .font(.system(size: 11, weight: .semibold, design: .monospaced))
                     .foregroundStyle(theme.textPrimary)
                     .padding(.horizontal, 8)
@@ -1368,7 +1368,7 @@ struct MiniStat: View {
 
     var body: some View {
         VStack(alignment: alignment, spacing: 3) {
-            Text(label)
+            Text(L(label))
                 .font(.system(size: 8.5, weight: .bold))
                 .tracking(0.6)
                 .foregroundStyle(theme.textDim)
@@ -1381,7 +1381,7 @@ struct MiniStat: View {
 
     @ViewBuilder
     private var reading: some View {
-        let text = Text(value)
+        let text = Text(L(value))
             .font(.system(size: 12, weight: .semibold, design: .monospaced))
             .foregroundStyle(theme.textPrimary)
 
@@ -1466,20 +1466,20 @@ struct SimReadoutCard: View {
             }
 
             if let configuration = configurationLine {
-                Text(configuration)
+                Text(L(configuration))
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(theme.textSecondary)
                     .flightInfoLine(minimumScale: 0.75)
             }
 
             if let warning = warningLine {
-                Text(warning)
+                Text(L(warning))
                     .font(.system(size: 11, weight: .bold))
                     .foregroundStyle(.orange)
             }
 
             if let age = ageLine {
-                Text(age)
+                Text(L(age))
                     .font(.system(size: 9.5, weight: .medium))
                     .foregroundStyle(theme.textDim)
                     .fixedSize(horizontal: false, vertical: true)
@@ -1563,7 +1563,7 @@ struct SimReadoutCard: View {
             parts.append(gear == 0 ? "Gear up" : "Gear down")
         }
         if let flaps = status.flapsState, flaps > 0 {
-            parts.append("Flaps \(flaps)")
+            parts.append(Lf("Flaps %@", String(flaps)))
         }
         if let spoilers = status.spoilersState, spoilers > 0 {
             parts.append(spoilers > 1 ? "Spoilers armed" : "Spoilers")
@@ -1594,9 +1594,9 @@ struct SimReadoutCard: View {
 
         let minutes = Int(age / 60)
         let when = minutes < 60
-            ? "\(minutes) min ago"
-            : "\(minutes / 60) h ago"
-        return "From the sim \(when) — the position since then is the map's, not theirs."
+            ? Lf("%@ min ago", String(minutes))
+            : Lf("%@ h ago", String(minutes / 60))
+        return Lf("From the sim %@ — the position since then is the map’s, not theirs.", when)
     }
 
     private static func tonnes(_ kilograms: Int) -> String {
@@ -1666,7 +1666,7 @@ struct ConnectFrequencyCard: View {
                 header
 
                 if let facility = facility {
-                    Text(facility)
+                    Text(L(facility))
                         .font(.system(size: 16, weight: .heavy, design: .rounded))
                         .foregroundStyle(theme.textPrimary)
                         .flightInfoLine(minimumScale: 0.6)
@@ -1683,13 +1683,13 @@ struct ConnectFrequencyCard: View {
                         ForEach(log.prefix(5)) { line in
                             VStack(alignment: .leading, spacing: 2) {
                                 if let from = line.from {
-                                    Text(from.uppercased())
+                                    Text(L(from.uppercased()))
                                         .font(.system(size: 8.5, weight: .bold))
                                         .tracking(0.8)
                                         .foregroundStyle(theme.accent)
                                 }
 
-                                Text(line.text)
+                                Text(L(line.text))
                                     .font(.system(size: 12, weight: .medium))
                                     .foregroundStyle(theme.textSecondary)
                                     .fixedSize(horizontal: false, vertical: true)

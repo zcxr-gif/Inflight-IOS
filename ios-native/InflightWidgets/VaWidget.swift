@@ -120,7 +120,7 @@ struct VaWidgetView: View {
             mark(va, side: family == .systemSmall ? 22 : 26)
 
             VStack(alignment: .leading, spacing: 1) {
-                Text(va.name)
+                Text(L(va.name))
                     .font(WidgetType.title(family == .systemSmall ? 13 : 15))
                     .foregroundStyle(WidgetPalette.text)
                     .lineLimit(1)
@@ -129,7 +129,7 @@ struct VaWidgetView: View {
                 // Says what kind of airline this is, every time, for the same
                 // reason the flight window's partner line does: a VA named
                 // after a real airline is otherwise read as that airline.
-                Text(va.callsign.isEmpty ? "VIRTUAL AIRLINE" : "VA · \(va.callsign.uppercased())")
+                Text(L(va.callsign.isEmpty ? "VIRTUAL AIRLINE" : "VA · \(va.callsign.uppercased())"))
                     .font(WidgetType.caption(8.5))
                     .foregroundStyle(WidgetPalette.dim)
                     .lineLimit(1)
@@ -149,7 +149,7 @@ struct VaWidgetView: View {
                     .scaledToFit()
                     .padding(side * 0.08)
             } else {
-                Text(va.monogram)
+                Text(L(va.monogram))
                     .font(.system(size: side * 0.42, weight: .bold, design: .rounded))
                     .foregroundStyle(WidgetPalette.text)
             }
@@ -174,11 +174,11 @@ struct VaWidgetView: View {
                 Spacer(minLength: 6)
 
                 VStack(alignment: .trailing, spacing: 1) {
-                    Text(va.hubs.prefix(3).joined(separator: " · "))
+                    Text(L(va.hubs.prefix(3).joined(separator: " · ")))
                         .font(WidgetType.readout(11))
                         .foregroundStyle(WidgetPalette.text)
                         .lineLimit(1)
-                    Text(va.hubs.count == 1 ? "HUB" : "HUBS")
+                    Text(L(va.hubs.count == 1 ? "HUB" : "HUBS"))
                         .font(WidgetType.caption(8.5))
                         .foregroundStyle(WidgetPalette.dim)
                 }
@@ -192,7 +192,7 @@ struct VaWidgetView: View {
             Text("\(value)")
                 .font(WidgetType.readout(family == .systemSmall ? 15 : 18))
                 .foregroundStyle(WidgetPalette.text)
-            Text(label)
+            Text(L(label))
                 .font(WidgetType.caption(family == .systemSmall ? 8 : 9))
                 .foregroundStyle(WidgetPalette.dim)
         }
@@ -210,14 +210,14 @@ struct VaWidgetView: View {
                             .font(.system(size: 9.5))
                             .foregroundStyle(WidgetPalette.dim)
 
-                        Text(movement.callsign)
+                        Text(L(movement.callsign))
                             .font(WidgetType.title(12))
                             .foregroundStyle(WidgetPalette.text)
                             .lineLimit(1)
 
                         Spacer(minLength: 4)
 
-                        Text(movement.detail)
+                        Text(L(movement.detail))
                             .font(WidgetType.readout(11))
                             .foregroundStyle(WidgetPalette.secondary)
                             .fixedSize()
@@ -238,7 +238,7 @@ struct VaWidgetView: View {
                 .font(WidgetType.caption(9.5))
                 .foregroundStyle(WidgetPalette.dim)
         } else if let stale = WidgetFormat.staleness(since: entry.capturedAt, now: entry.date) {
-            Text(stale)
+            Text(L(stale))
                 .font(WidgetType.caption(9))
                 .foregroundStyle(WidgetPalette.dim)
         }
@@ -267,7 +267,7 @@ struct VaWidgetView: View {
     private var accessory: some View {
         if let va = entry.va {
             VStack(alignment: .leading, spacing: 1) {
-                Text(va.name)
+                Text(L(va.name))
                     .font(.system(size: 14, weight: .heavy, design: .rounded))
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)

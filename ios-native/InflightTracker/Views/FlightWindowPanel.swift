@@ -263,7 +263,7 @@ struct FlightWindowPanel: View {
         VStack(alignment: .leading, spacing: 10) {
             Picker("Preview", selection: $stage) {
                 ForEach(Stage.allCases) { stage in
-                    Text(stage.label).tag(stage)
+                    Text(L(stage.label)).tag(stage)
                 }
             }
             .pickerStyle(.segmented)
@@ -272,7 +272,7 @@ struct FlightWindowPanel: View {
 
             // On the panel's ground rather than the window's, so the panel's
             // ink: a Paper window in a dark app is still a dark panel.
-            Text(caption)
+            Text(L(caption))
                 .font(.system(size: 10.5, weight: .medium))
                 .foregroundStyle(appearance.theme.textDim)
                 .fixedSize(horizontal: false, vertical: true)
@@ -326,7 +326,7 @@ struct FlightWindowPanel: View {
         // airport, page a photo — would be a preview that navigates.
         .allowsHitTesting(false)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(caption)
+        .accessibilityLabel(L(caption))
         // The whole point: the drawing changes under the choice being made.
         .motion(Motion.panel, value: appearance.resolvedPeakStyle)
         .motion(Motion.panel, value: appearance.resolvedWindowStyle)

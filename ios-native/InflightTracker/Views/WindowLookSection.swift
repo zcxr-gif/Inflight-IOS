@@ -79,7 +79,7 @@ struct WindowLookSection: View {
                             if store.needsProFor != nil { isShowingPaywall = true }
                         }
                     } label: {
-                        Text(store.isSaving ? "Saving…" : "Save window")
+                        Text(L(store.isSaving ? "Saving…" : "Save window"))
                             .font(.system(size: 12, weight: .bold, design: .rounded))
                             .foregroundStyle(panelTheme.onAccent)
                             .padding(.horizontal, 14)
@@ -134,7 +134,7 @@ struct WindowLookSection: View {
                     .font(.system(size: 9, weight: .semibold))
                     .tracking(0.9)
                     .opacity(0.72)
-                Text(store.profile?.ifUsername.isEmpty == false ? store.profile!.ifUsername : "Your callsign")
+                Text(L(store.profile?.ifUsername.isEmpty == false ? store.profile!.ifUsername : "Your callsign"))
                     .font(.system(size: 17, weight: .semibold))
             }
             .foregroundStyle(windowColour.isLight ? Color.black : Color.white)
@@ -190,7 +190,7 @@ struct WindowLookSection: View {
                 }
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(label)
+        .accessibilityLabel(L(label))
         .accessibilityAddTraits(selected ? .isSelected : [])
     }
 
@@ -230,7 +230,7 @@ struct WindowLookSection: View {
                                 }
                         }
                         .buttonStyle(.plain)
-                        .accessibilityLabel(preset.name)
+                        .accessibilityLabel(L(preset.name))
                     }
                     Spacer(minLength: 0)
                     ColorPicker("Any colour", selection: colourWell, supportsOpacity: false)
@@ -258,7 +258,7 @@ struct WindowLookSection: View {
                             } else {
                                 Image(systemName: "photo").font(.system(size: 11, weight: .bold))
                             }
-                            Text(uploading ? "Uploading…" : (store.profile?.windowPhotoPath == nil ? "Use a photo" : "Change photo"))
+                            Text(L(uploading ? "Uploading…" : (store.profile?.windowPhotoPath == nil ? "Use a photo" : "Change photo")))
                                 .font(.system(size: 12, weight: .bold, design: .rounded))
                         }
                         .foregroundStyle(panelTheme.onAccent)
@@ -289,7 +289,7 @@ struct WindowLookSection: View {
         Button { isShowingPaywall = true } label: {
             HStack(spacing: 6) {
                 Image(systemName: "lock").font(.system(size: 10, weight: .bold))
-                Text(line).font(.system(size: 11, weight: .semibold))
+                Text(L(line)).font(.system(size: 11, weight: .semibold))
             }
             .foregroundStyle(panelTheme.textSecondary)
         }

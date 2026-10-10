@@ -1986,8 +1986,8 @@ struct ContentView: View {
         // saying the wrong thing about what was pressed.
         .flightInfoChrome(theme, in: Circle(), interactive: true)
         .environment(\.colorScheme, theme.colorScheme)
-        .accessibilityLabel(profileLabel)
-        .accessibilityHint(profiles.profile == nil ? "Opens your account" : "Opens your profile")
+        .accessibilityLabel(L(profileLabel))
+        .accessibilityHint(L(profiles.profile == nil ? "Opens your account" : "Opens your profile"))
         .contextMenu {
             if let handle = profiles.profile?.handle, !handle.isEmpty {
                 Button {
@@ -2000,7 +2000,7 @@ struct ContentView: View {
             Button {
                 isShowingAccount = true
             } label: {
-                Label(accounts.isSignedIn ? "Account" : "Sign in", systemImage: "gearshape")
+                Label(L(accounts.isSignedIn ? "Account" : "Sign in"), systemImage: "gearshape")
             }
 
             if !entitlements.isPro {
@@ -2067,7 +2067,7 @@ struct ContentView: View {
                         weatherPreferences.mapLayer = layer
                     } label: {
                         Label(
-                            layer.label,
+                            L(layer.label),
                             systemImage: weatherPreferences.mapLayer == layer ? "checkmark" : layer.symbol
                         )
                     }
@@ -2093,7 +2093,7 @@ struct ContentView: View {
         } label: {
             mapControlFace(weatherSymbol, isOn: isWeatherOnMap)
         }
-        .accessibilityLabel(weatherLabel)
+        .accessibilityLabel(L(weatherLabel))
         .accessibilityAddTraits(isWeatherOnMap ? .isSelected : [])
     }
 
@@ -2218,7 +2218,7 @@ struct ContentView: View {
                             selectPlanet { appearance.globeSkin = skin }
                         } label: {
                             Label(
-                                skin.label,
+                                L(skin.label),
                                 systemImage: appearance.resolvedGlobeSkin == skin
                                     ? "checkmark"
                                     : "circle.fill"
@@ -2233,7 +2233,7 @@ struct ContentView: View {
                             selectPlanet { appearance.globeBackdrop = backdrop }
                         } label: {
                             Label(
-                                backdrop.label,
+                                L(backdrop.label),
                                 systemImage: appearance.resolvedGlobeBackdrop == backdrop
                                     ? "checkmark"
                                     : backdrop.symbol
@@ -2254,7 +2254,7 @@ struct ContentView: View {
                 // Said in the heading rather than badged on sixteen rows
                 // inside two submenus, where a badge would be a word in a menu
                 // item's title.
-                Text(appearance.canEditPlanet ? "Planet" : "Planet — Pro")
+                Text(L(appearance.canEditPlanet ? "Planet" : "Planet — Pro"))
             }
         }
     }
@@ -2360,7 +2360,7 @@ struct ContentView: View {
                         select(projection)
                     } label: {
                         Label(
-                            locked(projection.isPro) ? "\(projection.label) (Pro)" : projection.label,
+                            L(locked(projection.isPro) ? "\(projection.label) (Pro)" : projection.label),
                             systemImage: appearance.mapProjection == projection
                                 ? "checkmark"
                                 : projection.symbol
@@ -2375,13 +2375,13 @@ struct ContentView: View {
             // taken away: a section that vanishes reads as a feature
             // that has gone missing, where a disabled one that agrees
             // with what is on screen reads as an answer.
-            Section(usesOwnPalette ? "Map (flat only)" : "Map") {
+            Section(L(usesOwnPalette ? "Map (flat only)" : "Map")) {
                 ForEach(MapPalette.allCases) { palette in
                     Button {
                         select(palette)
                     } label: {
                         Label(
-                            locked(palette.isPro) ? "\(palette.label) (Pro)" : palette.label,
+                            L(locked(palette.isPro) ? "\(palette.label) (Pro)" : palette.label),
                             // What is drawn rather than what is stored,
                             // so the tick is on Satellite while the
                             // globe is up and back on the stored choice
@@ -2435,7 +2435,7 @@ struct ContentView: View {
         } label: {
             mapControlFace(mapStyleSymbol, isOn: false)
         }
-        .accessibilityLabel(mapStyleLabel)
+        .accessibilityLabel(L(mapStyleLabel))
     }
 
     /// Straight to the aeroplane you are flying, and its window open on it.
@@ -2468,7 +2468,7 @@ struct ContentView: View {
                                 goToMyAircraft(flight)
                             } label: {
                                 Label(
-                                    flight.callsign ?? flight.id,
+                                    L(flight.callsign ?? flight.id),
                                     systemImage: "airplane"
                                 )
                             }
@@ -2683,7 +2683,7 @@ struct ContentView: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(areMapControlsCollapsed ? "Show map controls" : "Hide map controls")
+        .accessibilityLabel(L(areMapControlsCollapsed ? "Show map controls" : "Hide map controls"))
     }
 
     private static let collapseHandleHeight: CGFloat = 24
@@ -2731,7 +2731,7 @@ struct ContentView: View {
         .clipShape(Circle())
         .flightInfoChrome(theme, in: Circle(), interactive: true)
         .environment(\.colorScheme, theme.colorScheme)
-        .accessibilityLabel(isOn ? "Hide 3D aircraft" : "Show 3D aircraft")
+        .accessibilityLabel(L(isOn ? "Hide 3D aircraft" : "Show 3D aircraft"))
         .accessibilityAddTraits(isOn ? .isSelected : [])
     }
 
@@ -2781,7 +2781,7 @@ struct ContentView: View {
             mapControlFace(symbol, isOn: isOn)
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(label)
+        .accessibilityLabel(L(label))
         .accessibilityAddTraits(isOn ? .isSelected : [])
     }
 

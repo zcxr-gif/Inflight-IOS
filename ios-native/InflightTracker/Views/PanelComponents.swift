@@ -137,12 +137,12 @@ struct MapPanel<Content: View>: View {
     private var header: some View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
             VStack(alignment: .leading, spacing: 3) {
-                Text(title)
+                Text(L(title))
                     .font(.system(size: 26, weight: .heavy, design: .rounded))
                     .foregroundStyle(theme.textPrimary)
 
                 if let subtitle = subtitle {
-                    Text(subtitle)
+                    Text(L(subtitle))
                         .font(.system(size: 11, weight: .medium))
                         .foregroundStyle(theme.textDim)
                         .flightInfoLine(minimumScale: 0.8)
@@ -202,7 +202,7 @@ struct PanelSection<Content: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text(title)
+                Text(L(title))
                     .font(.system(size: 9, weight: .bold))
                     .tracking(1)
                     .foregroundStyle(theme.textDim)
@@ -261,7 +261,7 @@ struct PanelRowLabel: View {
                 .foregroundStyle(tint ?? theme.textSecondary)
                 .frame(width: 20)
 
-            Text(title)
+            Text(L(title))
                 .font(.system(size: 14, weight: .medium))
                 .foregroundStyle(theme.textPrimary)
                 .flightInfoLine(minimumScale: 0.8)
@@ -290,7 +290,7 @@ struct PanelToggleRow: View {
             .tint(theme.accent)
 
             if let detail = detail {
-                Text(detail)
+                Text(L(detail))
                     .font(.system(size: 10.5, weight: .medium))
                     .foregroundStyle(theme.textDim)
                     // Clears the icon column, so the explanation lines up under
@@ -367,15 +367,15 @@ struct PanelPickerRow<Value: Hashable & Identifiable>: View {
         VStack(alignment: .leading, spacing: 9) {
             PanelRowLabel(title: title, symbol: symbol)
 
-            Picker(title, selection: $selection) {
+            Picker(L(title), selection: $selection) {
                 ForEach(options) { option in
-                    Text(label(option)).tag(option)
+                    Text(L(label(option))).tag(option)
                 }
             }
             .pickerStyle(.segmented)
 
             if let detail = detail {
-                Text(detail)
+                Text(L(detail))
                     .font(.system(size: 10.5, weight: .medium))
                     .foregroundStyle(theme.textDim)
             }
@@ -434,7 +434,7 @@ struct PanelSliderRow: View {
                 PanelRowLabel(title: title, symbol: symbol)
                 Spacer(minLength: 8)
 
-                Text(reading(value))
+                Text(L(reading(value)))
                     .font(.system(size: 12, weight: .semibold).monospacedDigit())
                     .foregroundStyle(isAdjusted ? theme.accent : theme.textSecondary)
 
@@ -468,7 +468,7 @@ struct PanelSliderRow: View {
             .padding(.leading, 9)
 
             if let detail = detail {
-                Text(detail)
+                Text(L(detail))
                     .font(.system(size: 10.5, weight: .medium))
                     .foregroundStyle(theme.textDim)
                     .padding(.leading, 30)
@@ -553,7 +553,7 @@ struct PanelFacilityLine: View {
 
     var body: some View {
         HStack(spacing: 9) {
-            Text(facility.kind.code)
+            Text(L(facility.kind.code))
                 .font(.system(size: 9, weight: .bold))
                 .tracking(0.6)
                 .foregroundStyle(theme.textPrimary)
@@ -561,7 +561,7 @@ struct PanelFacilityLine: View {
                 .padding(.vertical, 4)
                 .background { Capsule().fill(theme.elevatedFill) }
 
-            Text(facility.controller)
+            Text(L(facility.controller))
                 .font(.system(size: 12.5, weight: .semibold))
                 .foregroundStyle(theme.textSecondary)
                 .flightInfoLine(minimumScale: 0.7)
@@ -572,7 +572,7 @@ struct PanelFacilityLine: View {
                 HStack(spacing: 4) {
                     Image(systemName: "clock")
                         .font(.system(size: 8.5))
-                    Text(online)
+                    Text(L(online))
                         .font(.system(size: 10, weight: .medium, design: .monospaced))
                 }
                 .foregroundStyle(theme.textDim)
@@ -606,7 +606,7 @@ struct PanelActionRow: View {
                     PanelRowLabel(title: title, symbol: symbol, tint: tint)
 
                     if let detail = detail {
-                        Text(detail)
+                        Text(L(detail))
                             .font(.system(size: 10.5, weight: .medium))
                             .foregroundStyle(theme.textDim)
                             // Clears the icon column, so it reads as a line
@@ -649,11 +649,11 @@ struct PanelEmptyState: View {
                 .font(.system(size: 26, weight: .light))
                 .foregroundStyle(theme.textDim)
 
-            Text(title)
+            Text(L(title))
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(theme.textSecondary)
 
-            Text(detail)
+            Text(L(detail))
                 .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(theme.textDim)
                 .multilineTextAlignment(.center)

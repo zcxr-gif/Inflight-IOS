@@ -47,7 +47,7 @@ struct AirportsPanel: View {
                         symbol: "mappin.slash",
                         title: feed.status.isLive ? "Nobody has filed a route" : "Waiting for the feed",
                         detail: feed.status.isLive
-                            ? "Aircraft on \(feed.server) appear here as soon as they file a departure or a destination."
+                            ? Lf("Aircraft on %@ appear here as soon as they file a departure or a destination.", feed.server)
                             : "The board fills in as soon as the server is reporting."
                     )
                 } else {
@@ -64,7 +64,7 @@ struct AirportsPanel: View {
 
     private func subtitle(for board: [AirportTraffic]) -> String {
         guard !board.isEmpty else { return feed.server }
-        return "Busiest of \(feed.flights.count) aircraft · \(feed.server)"
+        return Lf("Busiest of %@ aircraft · %@", String(feed.flights.count), feed.server)
     }
 
     private func row(_ entry: AirportTraffic) -> some View {
@@ -74,13 +74,13 @@ struct AirportsPanel: View {
             HStack(spacing: 10) {
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 7) {
-                        Text(entry.airport.icao)
+                        Text(L(entry.airport.icao))
                             .font(.system(size: 16, weight: .heavy, design: .rounded))
                             .foregroundStyle(theme.textPrimary)
                             .fixedSize()
 
                         if !entry.airport.flag.isEmpty {
-                            Text(entry.airport.flag).font(.system(size: 11))
+                            Text(L(entry.airport.flag)).font(.system(size: 11))
                         }
 
                         // Worth marking rather than leaving to be discovered by
@@ -91,7 +91,7 @@ struct AirportsPanel: View {
                         }
                     }
 
-                    Text(entry.airport.name)
+                    Text(L(entry.airport.name))
                         .font(.system(size: 10.5, weight: .medium))
                         .foregroundStyle(theme.textDim)
                         .flightInfoLine(minimumScale: 0.75)

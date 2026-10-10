@@ -141,9 +141,9 @@ struct RealWorldTrafficBanner: View {
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Real-world traffic is on. \(traffic.status.label).")
         .accessibilityHint(
-            isExpanded
+            L(isExpanded
                 ? "Folds this away, leaving the count."
-                : "Opens the bar, with the way to turn real-world traffic off."
+                : "Opens the bar, with the way to turn real-world traffic off.")
         )
         .accessibilityAddTraits(.isButton)
     }
@@ -155,7 +155,7 @@ struct RealWorldTrafficBanner: View {
                 .tracking(0.6)
                 .foregroundStyle(theme.textPrimary)
 
-            Text(traffic.status.label)
+            Text(L(traffic.status.label))
                 .font(.system(size: 10, weight: .medium))
                 .foregroundStyle(theme.textDim)
                 .flightInfoLine(minimumScale: 0.8)
@@ -278,7 +278,7 @@ struct RealWorldAttribution: View {
         Button {
             if let home = Self.home { openURL(home) }
         } label: {
-            Text(Self.credit)
+            Text(L(Self.credit))
                 .font(.system(size: 8.5, weight: .medium))
                 .foregroundStyle(theme.textDim)
                 .multilineTextAlignment(.center)
@@ -292,7 +292,7 @@ struct RealWorldAttribution: View {
         }
         .buttonStyle(.plain)
         .padding(.top, 2)
-        .accessibilityLabel(Self.credit)
+        .accessibilityLabel(L(Self.credit))
         .accessibilityHint("Opens adsb.lol")
     }
 

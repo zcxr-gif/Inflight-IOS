@@ -166,10 +166,10 @@ struct AccountPanel: View {
             // Saying so here is the difference between a refund request and a
             // pilot who knows where the switch is.
             Text(
-                "This cannot be undone. Your account and everything stored against it are erased.\n\n"
+                L("This cannot be undone. Your account and everything stored against it are erased.\n\n"
                 + "It does not cancel a subscription. Pro you have already paid for stays on this "
                 + "device until that period ends — cancel in Settings › Apple Account, or on "
-                + "inflight.info if you subscribed there."
+                + "inflight.info if you subscribed there.")
             )
         }
     }
@@ -209,15 +209,15 @@ struct AccountPanel: View {
                         )
 
                         VStack(alignment: .leading, spacing: 3) {
-                            Text(profile.displayName.isEmpty ? profile.handle : profile.displayName)
+                            Text(L(profile.displayName.isEmpty ? profile.handle : profile.displayName))
                                 .font(.system(size: 15, weight: .bold))
                                 .foregroundStyle(theme.textPrimary)
                                 .flightInfoLine(minimumScale: 0.8)
 
-                            Text(profile.isHidden
+                            Text(L(profile.isHidden
                                  ? "Not currently public"
                                  : profile.isPublic ? "@\(profile.handle)"
-                                                    : "@\(profile.handle) · hidden")
+                                                    : "@\(profile.handle) · hidden"))
                                 .font(.system(size: 11, weight: .medium, design: .monospaced))
                                 .foregroundStyle(theme.textDim)
                                 .flightInfoLine(minimumScale: 0.7)
@@ -300,9 +300,9 @@ struct AccountPanel: View {
                     message(problem, symbol: "exclamationmark.triangle", isProblem: true)
                 }
 
-                Text(identity.isSet
-                     ? "The tracker marks \(identity.username)'s aircraft as yours."
-                     : "Exactly as it appears in Infinite Flight, so the tracker can pick your aircraft out of the traffic.")
+                Text(L(identity.isSet
+                     ? Lf("The tracker marks %@'s aircraft as yours.", "\(identity.username)")
+                     : "Exactly as it appears in Infinite Flight, so the tracker can pick your aircraft out of the traffic."))
                     .font(.system(size: 10.5, weight: .medium))
                     .foregroundStyle(theme.textDim)
                     .fixedSize(horizontal: false, vertical: true)
@@ -556,19 +556,19 @@ struct AccountPanel: View {
             HStack(spacing: 12) {
                 // Initials rather than a photo: the profile has no picture to
                 // show, and a grey silhouette says less than two letters do.
-                Text(account.initials)
+                Text(L(account.initials))
                     .font(.system(size: 15, weight: .bold, design: .rounded))
                     .foregroundStyle(theme.onAccent)
                     .frame(width: 42, height: 42)
                     .background { Circle().fill(theme.accent) }
 
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(account.handle)
+                    Text(L(account.handle))
                         .font(.system(size: 15, weight: .bold))
                         .foregroundStyle(theme.textPrimary)
                         .flightInfoLine(minimumScale: 0.8)
 
-                    Text(account.email)
+                    Text(L(account.email))
                         .font(.system(size: 11, weight: .medium))
                         .foregroundStyle(theme.textDim)
                         .flightInfoLine(minimumScale: 0.7)
@@ -741,7 +741,7 @@ struct AccountPanel: View {
                 PanelActionRow(
                     title: "Get Inflight Pro",
                     symbol: "sparkles",
-                    detail: store.priceSummary.map { "From \($0). Cancel any time." }
+                    detail: store.priceSummary.map { Lf("From %@. Cancel any time.", "\($0)") }
                         ?? "Everything the tracker can do. Cancel any time."
                 ) {
                     isShowingPaywall = true
@@ -765,8 +765,8 @@ struct AccountPanel: View {
 
         let date = until.formatted(.dateTime.day().month(.abbreviated).year())
         return accounts.account?.proCancelsAtPeriodEnd == true
-            ? "Runs until \(date), and will not renew after that."
-            : "Renews \(date). Cancel any time in Settings."
+            ? Lf("Runs until %@, and will not renew after that.", "\(date)")
+            : Lf("Renews %@. Cancel any time in Settings.", "\(date)")
     }
 
     // MARK: - Signed out
@@ -817,7 +817,7 @@ struct AccountPanel: View {
             VStack(alignment: .leading, spacing: 12) {
                 Picker("", selection: $intent) {
                     ForEach(Intent.allCases) { option in
-                        Text(option.label).tag(option)
+                        Text(L(option.label)).tag(option)
                     }
                 }
                 .pickerStyle(.segmented)
@@ -861,7 +861,7 @@ struct AccountPanel: View {
                         if accounts.isWorking {
                             ProgressView().tint(theme.onAccent)
                         }
-                        Text(intent.label)
+                        Text(L(intent.label))
                             .font(.system(size: 14, weight: .bold, design: .rounded))
                     }
                     .foregroundStyle(theme.onAccent)
@@ -955,7 +955,7 @@ struct AccountPanel: View {
 
     private func termsLink(_ title: String, _ url: URL?) -> some View {
         Link(destination: url ?? URL(string: "https://inflight.info")!) {
-            Text(title)
+            Text(L(title))
                 .font(.system(size: 11.5, weight: .semibold))
                 .foregroundStyle(theme.accent)
                 .underline()
@@ -1003,7 +1003,7 @@ struct AccountPanel: View {
                     SecureField(title, text: text)
                         .textContentType(intent == .signUp ? .newPassword : .password)
                 } else {
-                    TextField(title, text: text)
+                    TextField(L(title), text: text)
                         .textContentType(.emailAddress)
                         .keyboardType(.emailAddress)
                         .textInputAutocapitalization(.never)
@@ -1039,7 +1039,7 @@ struct AccountPanel: View {
         HStack(alignment: .top, spacing: 8) {
             Image(systemName: symbol)
                 .font(.system(size: 11, weight: .semibold))
-            Text(text)
+            Text(L(text))
                 .font(.system(size: 11.5, weight: .medium))
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -1055,11 +1055,11 @@ struct AccountPanel: View {
                 .frame(width: 20)
 
             VStack(alignment: .leading, spacing: 4) {
-                Text(title)
+                Text(L(title))
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(theme.textPrimary)
 
-                Text(detail)
+                Text(L(detail))
                     .font(.system(size: 10.5, weight: .medium))
                     .foregroundStyle(theme.textDim)
                     .fixedSize(horizontal: false, vertical: true)
@@ -1073,13 +1073,13 @@ struct AccountPanel: View {
 
     private func detailRow(_ title: String, value: String) -> some View {
         HStack(spacing: 10) {
-            Text(title)
+            Text(L(title))
                 .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(theme.textSecondary)
 
             Spacer(minLength: 8)
 
-            Text(value)
+            Text(L(value))
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(theme.textPrimary)
                 .flightInfoLine(minimumScale: 0.7)
