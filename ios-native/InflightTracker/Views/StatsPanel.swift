@@ -117,7 +117,7 @@ struct StatsPanel: View {
                 .foregroundStyle(theme.textPrimary)
                 .motionFigure(Double(pulse.total))
 
-            Text("ON \(feed.server.uppercased())")
+            Text(Lf("ON %@", feed.server.uppercased()))
                 .font(.system(size: 8.5, weight: .bold))
                 .tracking(0.6)
                 .foregroundStyle(theme.textSecondary)

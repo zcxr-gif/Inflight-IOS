@@ -621,7 +621,7 @@ struct AppearanceSettingsPanel: View {
 
                             Spacer(minLength: 8)
 
-                            Text("\(hints.retiredCount) read")
+                            Text(Lf("%@ read", String(hints.retiredCount)))
                                 .font(.system(size: 11, weight: .semibold, design: .monospaced))
                                 .foregroundStyle(theme.textDim)
                                 .fixedSize()
@@ -704,7 +704,7 @@ struct FeedSettingsPanel: View {
 
     private var summary: String {
         guard feed.status.isLive else { return feed.status.label }
-        return "\(feed.flights.count) aircraft · \(feed.server)"
+        return Lf("%@ aircraft · %@", String(feed.flights.count), feed.server)
     }
 
     private func serverRow(_ server: String) -> some View {
@@ -910,7 +910,7 @@ struct AboutSettingsPanel: View {
                 // build.
                 row("Aircraft icons", value: PlaneSprites.shared.isReady ? "Vector" : "Missing")
                 PanelDivider()
-                row("Traffic", value: "\(feed.flights.count) aircraft")
+                row("Traffic", value: Lf("%@ aircraft", String(feed.flights.count)))
             }
             .panelEntrance(0)
 
@@ -1280,8 +1280,8 @@ enum SettingsSummary {
         case .searching:            return "Looking for Infinite Flight on this network…"
         case .connecting:           return "Connecting…"
         case .syncing:              return "Reading what this aircraft publishes…"
-        case let .live(host):       return "Connected to \(host)."
-        case let .waiting(reason):  return "Waiting — \(reason)"
+        case let .live(host):       return Lf("Connected to %@.", host)
+        case let .waiting(reason):  return Lf("Waiting — %@", reason)
         }
     }
 
@@ -1441,6 +1441,6 @@ struct ProPromoCard: View {
     /// one or showing a gap where a price is going to appear.
     private var price: String {
         guard let price = store.priceSummary else { return "Seven features, one subscription." }
-        return "From \(price)."
+        return Lf("From %@.", price)
     }
 }

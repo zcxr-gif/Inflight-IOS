@@ -80,7 +80,7 @@ struct FlightKeepMenu: View {
                     toggleWatch(pilot)
                 } label: {
                     Label(
-                        L(isWatching ? "Stop watching \(pilot)" : "Watch \(pilot)"),
+                        L(isWatching ? Lf("Stop watching %@", pilot) : Lf("Watch %@", pilot)),
                         systemImage: watchSymbol
                     )
                 }
@@ -133,7 +133,7 @@ struct FlightKeepMenu: View {
 
     private var accessibilityState: String {
         var running: [String] = []
-        if isWatching, let pilot = pilot { running.append("watching \(pilot)") }
+        if isWatching, let pilot = pilot { running.append(Lf("watching %@", pilot)) }
         if isBannering { running.append("live banner on") }
         if isPinned { running.append("pinned to the widget") }
         return running.isEmpty ? "Nothing running" : running.joined(separator: ", ")

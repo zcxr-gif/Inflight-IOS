@@ -45,7 +45,7 @@ struct FiledRouteCard: View {
 
             Spacer(minLength: 6)
 
-            Text("\(waypoints.count) FIX\(waypoints.count == 1 ? "" : "ES")")
+            Text(Lf(waypoints.count == 1 ? "%@ FIX" : "%@ FIXES", String(waypoints.count)))
                 .font(.system(size: 9, weight: .bold, design: .monospaced))
                 .foregroundStyle(theme.textDim)
                 .fixedSize()

@@ -310,10 +310,10 @@ struct FlightActionRow: View {
 
         case .grounded(let airport, let isTaxiing):
             let place = airport?.icao ?? "an unknown field"
-            lines.append(isTaxiing ? "Taxiing at \(place)" : "Parked at \(place)")
+            lines.append(isTaxiing ? Lf("Taxiing at %@", place) : Lf("Parked at %@", place))
 
         case .unplanned(_, let nearest):
-            lines.append(nearest.map { "Passing \($0.icao)" } ?? "Airborne, no destination filed")
+            lines.append(nearest.map { Lf("Passing %@", $0.icao) } ?? "Airborne, no destination filed")
         }
 
         lines.append(

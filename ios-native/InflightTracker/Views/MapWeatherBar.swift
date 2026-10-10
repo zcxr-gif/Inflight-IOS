@@ -71,9 +71,9 @@ struct MapWeatherBar: View {
         guard minutes < 360 else { return dayLabel(for: time) }
 
         switch minutes {
-        case ..<(-1): return "+\(-minutes) MIN"
+        case ..<(-1): return Lf("+%@ MIN", String(-minutes))
         case -1...1: return "NOW"
-        default: return "−\(minutes) MIN"
+        default: return Lf("−%@ MIN", String(minutes))
         }
     }
 
@@ -88,7 +88,7 @@ struct MapWeatherBar: View {
         switch days {
         case ..<1: return "TODAY"
         case 1: return "YESTERDAY"
-        default: return "−\(days) DAYS"
+        default: return Lf("−%@ DAYS", String(days))
         }
     }
 

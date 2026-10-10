@@ -108,7 +108,7 @@ struct MapDockDigest: Equatable {
                 row(
                     flight,
                     title: flight.displayName,
-                    route: "\(place(start)) to \(place(end))",
+                    route: Lf("%@ to %@", place(start), place(end)),
                     figure: Format.number(leg),
                     unit: "NM"
                 )
@@ -121,7 +121,7 @@ struct MapDockDigest: Equatable {
                 row(
                     flight,
                     title: flight.displayName,
-                    route: "\(place(start)) to \(place(end))",
+                    route: Lf("%@ to %@", place(start), place(end)),
                     figure: "\(max(Int(minutes.rounded()), 1))",
                     unit: "MIN"
                 )
@@ -182,9 +182,9 @@ struct MapDockDigest: Equatable {
 
     private static func routeText(_ flight: Flight, store: AirportStore) -> String {
         if let start = store.airport(flight.departureIcao), let end = store.airport(flight.arrivalIcao) {
-            return "\(place(start)) to \(place(end))"
+            return Lf("%@ to %@", place(start), place(end))
         }
-        if let end = store.airport(flight.arrivalIcao) { return "To \(place(end))" }
+        if let end = store.airport(flight.arrivalIcao) { return Lf("To %@", place(end)) }
         return flight.aircraftName.isEmpty ? "No flight plan" : flight.aircraftName
     }
 

@@ -280,7 +280,7 @@ struct FlightWidgetPeek: View {
             if !tile.registration.isEmpty { return tile.registration }
             return "No route filed"
         }
-        return "\(WidgetFormat.number(tile.remainingNM)) NM to run"
+        return Lf("%@ NM to run", WidgetFormat.number(tile.remainingNM))
     }
 
     private func summary(_ tile: WidgetFlight) -> String {

@@ -160,7 +160,7 @@ struct MapSearchResultsCard: View {
     var body: some View {
         VStack(spacing: 0) {
             if results.isEmpty {
-                Text("Nothing matching \"\(query)\"")
+                Text(Lf("Nothing matching “%@”", query))
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(theme.textDim)
                     .frame(maxWidth: .infinity, alignment: .leading)

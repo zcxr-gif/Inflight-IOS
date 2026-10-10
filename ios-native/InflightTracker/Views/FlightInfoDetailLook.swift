@@ -476,14 +476,14 @@ struct FlightDetailPeek: View {
 
     private var departedLine: String {
         guard let began = began else { return "DEPARTURE NOT SEEN" }
-        return "DEPARTED \(FlightDetailLook.elapsed(since: began)) AGO"
+        return Lf("DEPARTED %@ AGO", FlightDetailLook.elapsed(since: began))
     }
 
     private var arrivingLine: String {
         guard let progress = progress,
               let remaining = progress.estimatedTimeEnroute(groundSpeedKnots: flight.groundSpeedKnots)
         else { return "NO ESTIMATE" }
-        return "ARRIVING IN \(Format.duration(remaining))"
+        return Lf("ARRIVING IN %@", Format.duration(remaining))
     }
 }
 
@@ -877,24 +877,24 @@ struct FlightDetailHead: View {
 
     private var flownLine: String {
         guard let progress = progress else { return "NOT FILED" }
-        return "\(Format.number(progress.flownNM)) NM FLOWN"
+        return Lf("%@ NM FLOWN", Format.number(progress.flownNM))
     }
 
     private var remainingLine: String {
         guard let progress = progress else { return "NO ROUTE" }
-        return "\(Format.number(progress.remainingNM)) NM TO RUN"
+        return Lf("%@ NM TO RUN", Format.number(progress.remainingNM))
     }
 
     private var departedValue: String {
         guard let began = began else { return "—" }
-        return "\(FlightDetailLook.elapsed(since: began)) ago"
+        return Lf("%@ ago", FlightDetailLook.elapsed(since: began))
     }
 
     private var arrivingValue: String {
         guard let progress = progress,
               let remaining = progress.estimatedTimeEnroute(groundSpeedKnots: flight.groundSpeedKnots)
         else { return "—" }
-        return "in \(Format.duration(remaining))"
+        return Lf("in %@", Format.duration(remaining))
     }
 }
 

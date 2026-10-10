@@ -348,7 +348,7 @@ private struct HomeFlightView: View {
             return stale
         }
         guard flight.totalNM > 1 else { return flight.username }
-        return "\(WidgetFormat.number(flight.remainingNM)) NM to run"
+        return Lf("%@ NM to run", WidgetFormat.number(flight.remainingNM))
     }
 }
 

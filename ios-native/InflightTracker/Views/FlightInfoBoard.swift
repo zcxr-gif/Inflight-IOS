@@ -211,7 +211,7 @@ struct FlightInfoBoard: View {
             timeTile(
                 kicker: "ARRIVING",
                 clock: arrival.map(Self.clock) ?? "—",
-                caption: remaining.map { "in \(Format.duration($0))" } ?? "No estimate",
+                caption: remaining.map { Lf("in %@", Format.duration($0)) } ?? "No estimate",
                 isEstimate: true
             )
         }
@@ -300,12 +300,12 @@ struct FlightInfoBoard: View {
 
     private var flown: String {
         guard let progress = progress else { return "—" }
-        return "\(Format.number(progress.flownNM)) NM FLOWN"
+        return Lf("%@ NM FLOWN", Format.number(progress.flownNM))
     }
 
     private var toRun: String {
         guard let progress = progress else { return "—" }
-        return "\(Format.number(progress.remainingNM)) NM TO RUN"
+        return Lf("%@ NM TO RUN", Format.number(progress.remainingNM))
     }
 
     // MARK: - Clocks
@@ -338,6 +338,6 @@ struct FlightInfoBoard: View {
     private static func relative(since date: Date) -> String {
         let elapsed = Date().timeIntervalSince(date)
         guard elapsed.isFinite, elapsed >= 60 else { return "Just now" }
-        return "\(Format.duration(elapsed)) ago"
+        return Lf("%@ ago", Format.duration(elapsed))
     }
 }

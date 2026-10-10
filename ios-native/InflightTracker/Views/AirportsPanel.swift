@@ -47,7 +47,7 @@ struct AirportsPanel: View {
                         symbol: "mappin.slash",
                         title: feed.status.isLive ? "Nobody has filed a route" : "Waiting for the feed",
                         detail: feed.status.isLive
-                            ? "Aircraft on \(feed.server) appear here as soon as they file a departure or a destination."
+                            ? Lf("Aircraft on %@ appear here as soon as they file a departure or a destination.", feed.server)
                             : "The board fills in as soon as the server is reporting."
                     )
                 } else {
@@ -64,7 +64,7 @@ struct AirportsPanel: View {
 
     private func subtitle(for board: [AirportTraffic]) -> String {
         guard !board.isEmpty else { return feed.server }
-        return "Busiest of \(feed.flights.count) aircraft · \(feed.server)"
+        return Lf("Busiest of %@ aircraft · %@", String(feed.flights.count), feed.server)
     }
 
     private func row(_ entry: AirportTraffic) -> some View {

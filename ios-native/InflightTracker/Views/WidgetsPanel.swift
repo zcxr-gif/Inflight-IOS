@@ -110,7 +110,7 @@ struct WidgetsPanel: View {
     }
 
     private var subtitle: String {
-        if let pinned = pinnedFlight { return "Showing \(pinned.displayName)" }
+        if let pinned = pinnedFlight { return Lf("Showing %@", pinned.displayName) }
         if widgets.pinnedFlightId != nil { return "Pinned flight has ended" }
         return "What the home screen is showing"
     }

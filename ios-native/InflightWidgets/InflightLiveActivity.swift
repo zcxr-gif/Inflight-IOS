@@ -200,7 +200,7 @@ struct LiveActivityLockScreen: View {
         HStack(alignment: .center) {
             if context.state.isLanded {
                 StatusBadge(
-                    text: "Landed at \(context.attributes.arrivalIcao)",
+                    text: Lf("Landed at %@", context.attributes.arrivalIcao),
                     colour: WidgetPalette.success
                 )
             } else {

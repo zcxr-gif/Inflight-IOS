@@ -80,8 +80,8 @@ struct NatTrackChip: View {
     }
 
     private func label(_ track: NatTrack) -> String {
-        if compact { return "TRACK \(track.name)" }
-        return FlightPhase.from(flight) == .cruise ? "CRUISING TRACK \(track.name)" : "ON TRACK \(track.name)"
+        if compact { return Lf("TRACK %@", track.name) }
+        return FlightPhase.from(flight) == .cruise ? Lf("CRUISING TRACK %@", track.name) : Lf("ON TRACK %@", track.name)
     }
 }
 
@@ -1563,7 +1563,7 @@ struct SimReadoutCard: View {
             parts.append(gear == 0 ? "Gear up" : "Gear down")
         }
         if let flaps = status.flapsState, flaps > 0 {
-            parts.append("Flaps \(flaps)")
+            parts.append(Lf("Flaps %@", String(flaps)))
         }
         if let spoilers = status.spoilersState, spoilers > 0 {
             parts.append(spoilers > 1 ? "Spoilers armed" : "Spoilers")
@@ -1594,9 +1594,9 @@ struct SimReadoutCard: View {
 
         let minutes = Int(age / 60)
         let when = minutes < 60
-            ? "\(minutes) min ago"
-            : "\(minutes / 60) h ago"
-        return "From the sim \(when) — the position since then is the map's, not theirs."
+            ? Lf("%@ min ago", String(minutes))
+            : Lf("%@ h ago", String(minutes / 60))
+        return Lf("From the sim %@ — the position since then is the map’s, not theirs.", when)
     }
 
     private static func tonnes(_ kilograms: Int) -> String {

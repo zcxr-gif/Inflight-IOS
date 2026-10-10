@@ -36,7 +36,7 @@ struct AtcPanel: View {
                         symbol: "antenna.radiowaves.left.and.right.slash",
                         title: feed.status.isLive ? "Nobody is controlling" : "Waiting for the feed",
                         detail: feed.status.isLive
-                            ? "No positions are open on \(feed.server) right now."
+                            ? Lf("No positions are open on %@ right now.", feed.server)
                             : "Controllers appear as soon as the server is reporting."
                     )
                 }
@@ -70,8 +70,8 @@ struct AtcPanel: View {
 
     private var subtitle: String {
         guard feed.atcCount > 0 else { return feed.server }
-        let positions = feed.atcCount == 1 ? "1 position" : "\(feed.atcCount) positions"
-        return "\(positions) open · \(feed.server)"
+        let positions = feed.atcCount == 1 ? "1 position" : Lf("%@ positions", String(feed.atcCount))
+        return Lf("%@ open · %@", positions, feed.server)
     }
 
     private var airfields: [AtcStation] {

@@ -136,7 +136,7 @@ struct AirportPanel: View {
                 // actions is how a panel becomes a trap.
                 if let origin = origin {
                     PanelActionRow(
-                        title: "Back to \(origin.label)",
+                        title: Lf("Back to %@", origin.label),
                         symbol: "chevron.backward",
                         action: origin.action
                     )
@@ -184,7 +184,7 @@ struct AirportPanel: View {
                             )
 
                             Text(L(isPinned
-                                 ? "The Airport widget is showing \(airport.icao)."
+                                 ? Lf("The Airport widget is showing %@.", airport.icao)
                                  : "Puts this field's traffic, ATC and weather on the Airport widget."))
                                 .font(.system(size: 10.5, weight: .medium))
                                 .foregroundStyle(theme.textDim)
@@ -270,7 +270,7 @@ struct AirportPanel: View {
     private func subtitle(for activity: AirportActivity) -> String {
         let movements = activity.movementCount
         guard movements > 0 else { return "\(airport.name) · \(feed.server)" }
-        let label = movements == 1 ? "1 aircraft" : "\(movements) aircraft"
+        let label = movements == 1 ? "1 aircraft" : Lf("%@ aircraft", String(movements))
         return "\(label) · \(feed.server)"
     }
 
@@ -353,7 +353,7 @@ struct AirportPanel: View {
                 }
             } else {
                 Text(L(hasWeatherAnswer
-                     ? "No report filed for \(airport.icao)."
+                     ? Lf("No report filed for %@.", airport.icao)
                      : "Checking for a report…"))
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(theme.textDim)
@@ -541,7 +541,7 @@ struct AirportPanel: View {
                 PanelActionRow(
                     title: "Airport diagram",
                     symbol: "map",
-                    detail: "The FAA's published ground chart for \(airport.icao)."
+                    detail: Lf("The FAA’s published ground chart for %@.", airport.icao)
                 ) {
                     chart = OpenChart(url: url)
                 }
@@ -583,11 +583,11 @@ struct AirportPanel: View {
                     PanelEmptyState(
                         symbol: "mappin.slash",
                         title: "No stands mapped",
-                        detail: "OpenStreetMap has no gates or parking positions for \(airport.icao)."
+                        detail: Lf("OpenStreetMap has no gates or parking positions for %@.", airport.icao)
                     )
                 }
             } else {
-                PanelSection(title: "GATES · \(occupancy.occupied.count) of \(occupancy.total) in use") {
+                PanelSection(title: Lf("GATES · %@ of %@ in use", String(occupancy.occupied.count), String(occupancy.total))) {
                     if occupancy.isEmpty {
                         PanelEmptyState(
                             symbol: "airplane.circle",
@@ -623,10 +623,10 @@ struct AirportPanel: View {
     /// what is actually parked, and a reader should know that.
     private func standFootnote(_ occupancy: GateOccupancy) -> String {
         guard occupancy.unmatched > 0 else {
-            return "\(occupancy.total) stands mapped at \(airport.icao)."
+            return Lf("%@ stands mapped at %@.", String(occupancy.total), airport.icao)
         }
-        let aircraft = occupancy.unmatched == 1 ? "1 aircraft is" : "\(occupancy.unmatched) aircraft are"
-        return "\(aircraft) parked away from a mapped stand."
+        let aircraft = occupancy.unmatched == 1 ? L("1 aircraft is") : Lf("%@ aircraft are", String(occupancy.unmatched))
+        return Lf("%@ parked away from a mapped stand.", aircraft)
     }
 
     // MARK: - Traffic
@@ -639,7 +639,7 @@ struct AirportPanel: View {
                     symbol: "airplane.circle",
                     title: feed.status.isLive ? "Nothing here right now" : "Waiting for the feed",
                     detail: feed.status.isLive
-                        ? "No aircraft on \(feed.server) are at \(airport.icao) or filed through it."
+                        ? Lf("No aircraft on %@ are at %@ or filed through it.", feed.server, airport.icao)
                         : "The field's traffic appears as soon as the server is reporting."
                 )
             }
@@ -760,7 +760,7 @@ private struct MovementRow: View {
 
     private var detail: String {
         if movement.etaLabel != nil {
-            return "\(Format.number(movement.distanceNM)) NM out"
+            return Lf("%@ NM out", Format.number(movement.distanceNM))
         }
 
         if flight.groundSpeedKnots < AirportActivity.flyingSpeedKnots {

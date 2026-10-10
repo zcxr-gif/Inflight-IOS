@@ -121,7 +121,7 @@ struct FriendsWidgetView: View {
                 }
 
                 if aloft.count > rowLimit {
-                    Text("+\(aloft.count - rowLimit) more")
+                    Text(Lf("+%@ more", String(aloft.count - rowLimit)))
                         .font(WidgetType.caption(family == .systemSmall ? 9 : 10))
                         .foregroundStyle(WidgetPalette.dim)
                 }
@@ -154,13 +154,13 @@ struct FriendsWidgetView: View {
 
     private var header: some View {
         HStack(alignment: .firstTextBaseline) {
-            Text("\(aloft.count) flying")
+            Text(Lf("%@ flying", String(aloft.count)))
                 .font(WidgetType.title(family == .systemSmall ? 14 : 17))
                 .foregroundStyle(WidgetPalette.text)
                 .flightInfoWidgetLine()
 
             if family != .systemSmall {
-                Text("of \(entry.friendCount)")
+                Text(Lf("of %@", String(entry.friendCount)))
                     .font(WidgetType.caption(11))
                     .foregroundStyle(WidgetPalette.dim)
             }
@@ -197,7 +197,7 @@ struct FriendsWidgetView: View {
                 .foregroundStyle(WidgetPalette.text)
             Text(L(entry.friendCount == 1
                  ? "Your one watched pilot is offline."
-                 : "None of your \(entry.friendCount) watched pilots are up."))
+                 : Lf("None of your %@ watched pilots are up.", String(entry.friendCount))))
                 .font(WidgetType.caption(10.5))
                 .foregroundStyle(WidgetPalette.dim)
                 .fixedSize(horizontal: false, vertical: true)
@@ -218,7 +218,7 @@ struct FriendsWidgetView: View {
             HStack(spacing: 4) {
                 Image(systemName: "person.2.fill")
                     .font(.system(size: 10, weight: .bold))
-                Text("\(aloft.count) of \(entry.friendCount) flying")
+                Text(Lf("%@ of %@ flying", String(aloft.count), String(entry.friendCount)))
                     .font(.system(size: 13, weight: .semibold, design: .rounded))
                     .flightInfoWidgetLine()
             }

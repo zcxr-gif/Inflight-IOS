@@ -678,7 +678,7 @@ struct FlightHorizonRouteStrip: View {
                 Text(L(facts.progress.map { "\(Int($0.remainingNM.rounded())) NM" } ?? "--- NM"))
                     .frame(maxWidth: .infinity, alignment: .leading)
                 phasePill
-                Text("ETE: \(HorizonRouteFacts.clock(facts.remaining))")
+                Text(Lf("ETE: %@", HorizonRouteFacts.clock(facts.remaining)))
                     .frame(maxWidth: .infinity, alignment: .trailing)
             }
             .font(.system(size: 11.5, weight: .medium).monospacedDigit())
@@ -854,7 +854,7 @@ struct FlightHorizonRouteStrip: View {
             Circle()
                 .fill(track.map { Color(uiColor: NatTrackStyle.colour(for: $0.name)) } ?? horizonPhaseColour(phase))
                 .frame(width: 6, height: 6)
-            Text(L(track.map { "\(phase.label) · Track \($0.name)" } ?? phase.label))
+            Text(L(track.map { Lf("%@ · Track %@", L(phase.label), $0.name) } ?? phase.label))
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(palette.ink(0.88))
         }

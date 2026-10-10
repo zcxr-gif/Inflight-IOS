@@ -229,7 +229,7 @@ enum WidgetFormat {
     static func staleness(since date: Date, now: Date = Date()) -> String? {
         let age = now.timeIntervalSince(date)
         guard age > 12 * 60 else { return nil }
-        if age > 6 * 3600 { return "Last seen \(clock(date))" }
-        return "\(duration(age)) ago"
+        if age > 6 * 3600 { return Lf("Last seen %@", clock(date)) }
+        return Lf("%@ ago", duration(age))
     }
 }

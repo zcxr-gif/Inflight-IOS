@@ -90,7 +90,7 @@ struct LandingBoardView: View {
     }
 
     private var subtitle: String {
-        entries.isEmpty ? "Measured by the sim" : "\(entries.count) pilots · measured by the sim"
+        entries.isEmpty ? "Measured by the sim" : Lf("%@ pilots · measured by the sim", String(entries.count))
     }
 
     private func row(_ entry: PilotLandingBoardEntry, place: Int) -> some View {
