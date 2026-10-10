@@ -977,7 +977,7 @@ struct TrackerMapView: UIViewRepresentable {
         /// callsign, pilot and source — so a packet rebuilds only the ones that
         /// changed rather than looking every aircraft on the server up in the
         /// VA directory again.
-        private var trafficSignatures: [String: String] = [:]
+        private var trafficSignatures: [String: TrafficSignature] = [:]
 
         /// Packets since every aeroplane's properties were last rebuilt. A
         /// sweep every so often picks up what nothing announces — a VA
@@ -1087,8 +1087,24 @@ struct TrackerMapView: UIViewRepresentable {
             }
         }
 
-        private static func signature(of flight: Flight) -> String {
-            "\(flight.spriteKey)|\(flight.callsign ?? "")|\(flight.username ?? "")|\(flight.origin == .infiniteFlight)"
+        /// What an aeroplane's properties are built from. A struct compared
+        /// field by field rather than a string interpolated per aircraft per
+        /// packet: the comparison is the same answer, and the string was a few
+        /// thousand allocations on the main thread every time a packet landed.
+        struct TrafficSignature: Equatable {
+            let spriteKey: String
+            let callsign: String?
+            let username: String?
+            let origin: Flight.Origin
+        }
+
+        private static func signature(of flight: Flight) -> TrafficSignature {
+            TrafficSignature(
+                spriteKey: flight.spriteKey,
+                callsign: flight.callsign,
+                username: flight.username,
+                origin: flight.origin
+            )
         }
 
         /// The aeroplanes the traffic source currently holds, so a packet can

@@ -66,7 +66,7 @@ struct MapDockDigest: Equatable {
 
             let isAirborne = FlightPhase.from(flight) != .ground
 
-            if let name = flight.username?.lowercased(), watched.contains(name) {
+            if let name = flight.usernameKey, watched.contains(name) {
                 friends.append((flight, flight.username ?? name))
             }
 

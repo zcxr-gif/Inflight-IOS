@@ -159,7 +159,14 @@ struct ContentView: View {
 
     /// The weather drawn under the traffic — which layer, and which frame of
     /// it while the radar is running.
-    @StateObject private var mapWeather = MapWeatherModel()
+    ///
+    /// Owned here but not watched from here. The radar steps a frame twice a
+    /// second, and this screen reads one thing off it — the tiles it hands the
+    /// map — so the map reads them itself (`WeatherTilesReader`), and the bar
+    /// and the planet watch the model on their own. Watched from here, every
+    /// step of the loop redrew the whole screen.
+    @StateObject private var mapWeatherOwner = Unobserved(MapWeatherModel())
+    private var mapWeather: MapWeatherModel { mapWeatherOwner.value }
     @State private var isWeatherExpanded = false
 
     /// Playback of the open aircraft's own track, started from the window and
@@ -238,7 +245,7 @@ struct ContentView: View {
 
         var seen = Set<String>()
         for flight in feed.flights {
-            guard let username = flight.username?.lowercased(), watched.contains(username) else { continue }
+            guard let username = flight.usernameKey, watched.contains(username) else { continue }
             seen.insert(username)
         }
 
@@ -424,11 +431,26 @@ struct ContentView: View {
     /// aeroplane hidden by a filter it cannot possibly satisfy is a layer that
     /// looks broken. Real traffic has its own switch, and that switch is the
     /// whole of what decides whether it is drawn.
+    ///
+    /// Remembered against `trafficRevision`, which stamps everything this is
+    /// built from. The body runs on every keystroke, chip and replay tick, and
+    /// with a filter on — or the real sky behind the server — each of those
+    /// used to filter and copy the whole server again to hand the map the
+    /// array it already had.
     private var visibleFlights: [Flight] {
+        let revision = trafficRevision
+        if let cached = visibleFlightsCache.flights(for: revision) { return cached }
+
         let simulated = filters.apply(to: feed.flights, keeping: selection?.id)
-        guard !realWorld.flights.isEmpty else { return simulated }
-        return simulated + realWorld.flights
+        let flights = realWorld.flights.isEmpty ? simulated : simulated + realWorld.flights
+        visibleFlightsCache.store(flights, for: revision)
+        return flights
     }
+
+    /// Where `visibleFlights` keeps its last answer. A reference held in state
+    /// rather than state itself, so that remembering an answer is not a change
+    /// that redraws anything.
+    @State private var visibleFlightsCache = TrafficCache()
 
     /// Search runs over the whole packet rather than `visibleFlights` — a
     /// callsign you have typed out in full is one you want found, not one the
@@ -447,6 +469,10 @@ struct ContentView: View {
     private var trafficRevision: Int {
         var hasher = Hasher()
         hasher.combine(feed.lastUpdate)
+        // A switch of server empties the traffic without a packet, so it has
+        // to move this too, or the old server's aircraft stay drawn until the
+        // new one first says something.
+        hasher.combine(feed.server)
         hasher.combine(filters.signature)
         hasher.combine(selection?.id)
         // A sweep of real traffic landing changes what should be drawn without
@@ -728,6 +754,18 @@ struct ContentView: View {
 
     /// The map itself, under everything.
     private var map: some View {
+        // The replay's aeroplane is read inside a view of its own, so the
+        // playhead stepping along twenty times a second redraws the map and
+        // not this whole screen. See `FlightReplay.playhead`.
+        ReplayFrameReader(playhead: replay.playhead) { replayFrame in
+            WeatherTilesReader(model: mapWeather) { weatherTiles in
+                trackerMap(replayFrame: replayFrame, weatherTiles: weatherTiles)
+            }
+        }
+        .ignoresSafeArea()
+    }
+
+    private func trackerMap(replayFrame: FlightReplay.Frame?, weatherTiles: MapWeatherTiles?) -> TrackerMapView {
         TrackerMapView(
             flights: visibleFlights,
             selection: $selection,
@@ -737,7 +775,7 @@ struct ContentView: View {
             leadingInset: mapLeadingInset,
             trailingInset: mapTrailingInset,
             legalInset: mapLegalInset,
-            replayFrame: replay.frame,
+            replayFrame: replayFrame,
             isFollowing: isFollowingLive,
             onFollowEnded: { isFollowing = false },
             isChasing: isChasing && aircraftModels != .off,
@@ -762,7 +800,7 @@ struct ContentView: View {
             showsFlownPath: filters.showsFlownPath,
             markerLabels: filters.markerLabels,
             showsVaMarks: filters.showsVaMarks,
-            weatherTiles: mapWeather.tiles,
+            weatherTiles: weatherTiles,
             onCameraMoving: { mapWeather.report(cameraMoving: $0) },
             onBearingChanged: { bearing in
                 mapBearing.degrees = bearing
@@ -794,7 +832,6 @@ struct ContentView: View {
             highlighting: highlighting,
             aircraftModels: aircraftModels
         )
-        .ignoresSafeArea()
     }
 
     /// The map underneath everything: Mapbox, or the planet the app draws
@@ -816,6 +853,13 @@ struct ContentView: View {
 
     /// The drawn planet, standing where Mapbox usually does.
     private var planet: some View {
+        ReplayFrameReader(playhead: replay.playhead) { replayFrame in
+            planetSurface(replayFrame: replayFrame)
+        }
+        .ignoresSafeArea()
+    }
+
+    private func planetSurface(replayFrame: FlightReplay.Frame?) -> PlanetSurface {
         PlanetSurface(
             weather: mapWeather,
             flights: visibleFlights,
@@ -829,7 +873,7 @@ struct ContentView: View {
             atcStations: filters.showsAtcBoundaries ? feed.atcStations : [],
             start: planetStart,
             command: mapCommand,
-            replayFrame: replay.frame,
+            replayFrame: replayFrame,
             // The same answer the flat map is given: the setting, and the
             // system's own request for less movement.
             smoothsTraffic: appearance.smoothsTraffic && !reduceMotion,
@@ -845,7 +889,6 @@ struct ContentView: View {
             },
             onTapEmpty: { tapEmptyMap() }
         )
-        .ignoresSafeArea()
     }
 
     /// A stamp of everything the planet's scene is built from. The map already
@@ -1685,7 +1728,7 @@ struct ContentView: View {
         }
 
         let mine = feed.flights
-            .filter { identity.isMe($0.username) }
+            .filter { identity.isMe($0) }
             .sorted {
                 if $0.altitudeFeet != $1.altitudeFeet { return $0.altitudeFeet > $1.altitudeFeet }
                 return $0.id < $1.id
@@ -1745,7 +1788,7 @@ struct ContentView: View {
     /// feed has caught up.
     private func openPilot(_ username: String) {
         let wanted = username.lowercased()
-        guard let flight = feed.flights.first(where: { $0.username?.lowercased() == wanted }) else { return }
+        guard let flight = feed.flights.first(where: { $0.usernameKey == wanted }) else { return }
         sheet = nil
         selection = SelectedFlight(id: flight.id)
         focus(on: flight.coordinate, spanMeters: 240_000)
@@ -2848,4 +2891,50 @@ private struct CompassButton: View {
         .accessibilityLabel("Face north")
         .accessibilityValue("The map is turned \(Int(abs(degrees))) degrees \(degrees > 0 ? "clockwise" : "anticlockwise")")
     }
+}
+
+/// The map's traffic, kept against the stamp it was built from — see
+/// `ContentView.visibleFlights`.
+final class TrafficCache {
+    private var revision: Int?
+    private var flights: [Flight] = []
+
+    func flights(for revision: Int) -> [Flight]? {
+        self.revision == revision ? flights : nil
+    }
+
+    func store(_ flights: [Flight], for revision: Int) {
+        self.revision = revision
+        self.flights = flights
+    }
+}
+
+/// Hands its content the replay's current frame, and redraws only itself as
+/// the playhead moves — see `FlightReplay.playhead`.
+private struct ReplayFrameReader<Content: View>: View {
+    @ObservedObject var playhead: FlightReplay.Playhead
+    let content: (FlightReplay.Frame?) -> Content
+
+    var body: some View {
+        content(playhead.frame)
+    }
+}
+
+/// Hands its content the radar's current tiles, and redraws only itself as the
+/// loop steps — see `ContentView.mapWeather`.
+private struct WeatherTilesReader<Content: View>: View {
+    @ObservedObject var model: MapWeatherModel
+    let content: (MapWeatherTiles?) -> Content
+
+    var body: some View {
+        content(model.tiles)
+    }
+}
+
+/// Owns an object for the life of a view without the view redrawing when that
+/// object changes — for something a view keeps alive but leaves its children
+/// to watch. Never publishes.
+final class Unobserved<Value: AnyObject>: ObservableObject {
+    let value: Value
+    init(_ value: Value) { self.value = value }
 }

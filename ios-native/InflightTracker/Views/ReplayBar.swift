@@ -52,7 +52,17 @@ struct ReplayBar: View {
 
     @ObservedObject var replay: FlightReplay
 
+    /// The slider and the readouts move with the playhead, which `replay`
+    /// itself no longer announces — see `FlightReplay.playhead`.
+    @ObservedObject private var playhead: FlightReplay.Playhead
+
     let theme: FlightInfoTheme
+
+    init(replay: FlightReplay, theme: FlightInfoTheme) {
+        self._replay = ObservedObject(wrappedValue: replay)
+        self._playhead = ObservedObject(wrappedValue: replay.playhead)
+        self.theme = theme
+    }
 
     var body: some View {
         VStack(spacing: Self.rowGap) {
@@ -60,7 +70,7 @@ struct ReplayBar: View {
 
             Slider(
                 value: Binding(
-                    get: { replay.progress },
+                    get: { playhead.progress },
                     set: { replay.scrub(to: $0) }
                 ),
                 in: 0...1
@@ -159,7 +169,7 @@ struct ReplayBar: View {
 
             // Height and speed at the played instant, which is the whole point
             // of watching it back rather than reading the track as a line.
-            if let frame = replay.frame {
+            if let frame = playhead.frame {
                 readout(Format.number(frame.altitudeFeet), "FT")
                 readout(Format.number(frame.groundSpeedKnots), "KTS")
             }
