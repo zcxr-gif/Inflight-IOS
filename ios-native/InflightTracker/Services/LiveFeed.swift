@@ -191,6 +191,10 @@ final class LiveFeed: ObservableObject {
         // Still on the decode queue: the trail store is what lets the map draw
         // where a flight has been, and it only ever sees what we receive.
         FlightTrailStore.shared.record(parsed)
+        // Same queue, same reason: the ETE's cruise-speed memory and the
+        // arrival fields' landing queues are worked out once per packet here,
+        // never in a view.
+        EnrouteEstimator.shared.record(parsed)
 
         publish { feed in
             feed.flights = parsed

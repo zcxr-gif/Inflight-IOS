@@ -273,15 +273,16 @@ struct HorizonRouteFacts {
     /// sight of the aircraft otherwise.
     var started: Date? { takeoff ?? firstSeen }
 
-    /// `ETE` the way the web works it: remaining distance at the current ground
-    /// speed, once it is fast enough to mean anything.
+    /// `ETE`: the route, speed profile and landing queue — see
+    /// `EnrouteEstimator` — once the aircraft is fast enough to mean anything.
     var remaining: TimeInterval? {
-        progress?.estimatedTimeEnroute(groundSpeedKnots: flight.groundSpeedKnots)
+        progress?.estimatedTimeEnroute(for: flight)
     }
 
-    /// `computeArrivalTimeInfo`: remaining distance at the ground speed, or at
-    /// 400 kt while it is too slow to say.
+    /// The ETE as a clock time, or — while it is too slow to have one — the
+    /// web's `computeArrivalTimeInfo`: remaining distance at 400 kt.
     var arrival: Date? {
+        if let remaining = remaining { return Date().addingTimeInterval(remaining) }
         guard let progress = progress, progress.remainingNM > 0 else { return nil }
         let speed = flight.groundSpeedKnots > 150 ? flight.groundSpeedKnots : 400
         let hours = progress.remainingNM / speed

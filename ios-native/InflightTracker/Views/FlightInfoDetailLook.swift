@@ -481,7 +481,7 @@ struct FlightDetailPeek: View {
 
     private var arrivingLine: String {
         guard let progress = progress,
-              let remaining = progress.estimatedTimeEnroute(groundSpeedKnots: flight.groundSpeedKnots)
+              let remaining = progress.estimatedTimeEnroute(for: flight)
         else { return "NO ESTIMATE" }
         return "ARRIVING IN \(Format.duration(remaining))"
     }
@@ -892,7 +892,7 @@ struct FlightDetailHead: View {
 
     private var arrivingValue: String {
         guard let progress = progress,
-              let remaining = progress.estimatedTimeEnroute(groundSpeedKnots: flight.groundSpeedKnots)
+              let remaining = progress.estimatedTimeEnroute(for: flight)
         else { return "—" }
         return "in \(Format.duration(remaining))"
     }
