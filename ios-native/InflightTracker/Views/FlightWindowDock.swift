@@ -71,6 +71,10 @@ struct FlightWindowDock<Content: View>: View {
 
     let onClose: () -> Void
 
+    /// Where the window tells the chrome standing on it how far a pull has
+    /// lowered it. See `FlightWindowTravel`.
+    var travel: FlightWindowTravel? = nil
+
     @ViewBuilder let content: Content
 
     /// How far the finger has carried the window, downwards positive. Let go
@@ -99,8 +103,24 @@ struct FlightWindowDock<Content: View>: View {
                     window(height: height)
                 }
                 .ignoresSafeArea(edges: .bottom)
+                // From the peek only. Open, the window covers the controls,
+                // which wait at the peek's height for it to come back down.
+                .onChange(of: isExpanded ? 0 : max(resting - height, 0)) { _, drop in
+                    reportDrop(drop)
+                }
         }
         .ignoresSafeArea(edges: .bottom)
+        .onDisappear { travel?.drop = 0 }
+    }
+
+    /// Tells the chrome riding the window where its top edge has got to:
+    /// under the finger exactly while the window is held, and on the window's
+    /// own spring once it is let go, so the two land together.
+    private func reportDrop(_ drop: CGFloat) {
+        guard let travel, travel.drop != drop else { return }
+        withTransaction(Transaction(animation: isHeld ? nil : Motion.chrome)) {
+            travel.drop = drop
+        }
     }
 
     /// Where the window is, with the finger taken into account. Down is free
@@ -188,5 +208,31 @@ struct FlightWindowDock<Content: View>: View {
                     }
                 }
             }
+    }
+}
+
+/// How far below its resting height the flight window's top edge is right now
+/// — the distance a pull down has carried it.
+///
+/// The corner controls stand on the window, and were stood on a number that
+/// only changed when the window settled: pull the window down and they hung
+/// in the air where its top edge had been, then dropped once it landed. They
+/// read this instead, and ride the edge down with the finger. An object of its
+/// own, and read by nothing but them, so a pull redraws the controls rather
+/// than the whole screen on every frame.
+///
+/// Downward only. A pull up grows the window over the controls, which is where
+/// they are at the full window anyway.
+final class FlightWindowTravel: ObservableObject {
+    @Published var drop: CGFloat = 0
+}
+
+/// Lowers whatever it is on by however far the flight window has been pulled
+/// down. See `FlightWindowTravel`.
+struct RidesFlightWindow: ViewModifier {
+    @ObservedObject var travel: FlightWindowTravel
+
+    func body(content: Content) -> some View {
+        content.offset(y: travel.drop)
     }
 }

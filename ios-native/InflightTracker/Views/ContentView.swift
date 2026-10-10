@@ -80,6 +80,9 @@ struct ContentView: View {
     /// it.
     @State private var isWindowExpanded = false
 
+    /// How far a pull has lowered the window, for the controls standing on it.
+    @State private var flightWindowTravel = FlightWindowTravel()
+
     /// The size of the area the map and its chrome are laid out in — what a
     /// pane sizes itself against, and so what the map has to ask about to know
     /// how much of it a pane is covering. See `FlightWindowPaneMetrics.paneSize`.
@@ -1433,7 +1436,8 @@ struct ContentView: View {
                 theme: appearance.windowTheme,
                 peakHeight: peakHeight,
                 isExpanded: $isWindowExpanded,
-                onClose: { sheet = nil }
+                onClose: { sheet = nil },
+                travel: flightWindowTravel
             ) {
                 FlightDetailView(
                     flightId: selected.id,
@@ -2678,8 +2682,17 @@ struct ContentView: View {
             // and one of the two is always zero.
             .padding(.trailing, 16 + mapTrailingInset)
             .padding(.bottom, flightWindowBottomInset + 8)
+            // Down with the window while it is being pulled, and back up with
+            // it when it is let go.
+            .modifier(RidesFlightWindow(travel: flightWindowTravel))
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
             .motion(Motion.chrome, value: axis)
+            // On the window's own spring whenever the window changes height —
+            // a photograph landing, the peak re-measuring, the pane moving. The
+            // window glides to its new height; without this the controls
+            // standing on it were cut straight to theirs.
+            .motion(Motion.chrome, value: flightWindowBottomInset)
+            .motion(Motion.chrome, value: mapTrailingInset)
             .ignoresSafeArea(.keyboard, edges: .bottom)
             .transition(.opacity.combined(with: .scale(scale: 0.9, anchor: .bottomTrailing)))
         }
@@ -2767,14 +2780,19 @@ struct ContentView: View {
         return Button {
             aircraftModelsRaw = (isOn ? AircraftModelSource.off : .flightAirMap).rawValue
         } label: {
-            Text("3D")
+            // Says what pressing it does: 3D leans the map over to stand the
+            // aeroplanes up, and once it has, 2D lays it back down flat. The
+            // camera move itself is the map's — see `tiltForModels`.
+            Text(isOn ? "2D" : "3D")
                 .font(.system(size: 14, weight: .bold, design: .rounded))
                 .foregroundStyle(theme.textPrimary)
+                .contentTransition(.numericText())
                 .frame(width: Self.cornerWidth, height: Self.cornerWidth)
                 .background {
                     if isOn { Circle().fill(theme.accent.opacity(0.22)) }
                 }
                 .contentShape(Circle())
+                .motion(Motion.control, value: isOn)
         }
         .buttonStyle(.plain)
         .clipShape(Circle())

@@ -347,16 +347,12 @@ struct FlightHorizonHeader: View {
     /// would otherwise take the touches meant for them.
     static let controlTop: CGFloat = WindowGrabber.bandHeight + 6
 
-    /// `fitHorizonHero`: full width, never zoomed past it, the band clamped
-    /// between 120 and 300.
+    /// Full width, at one shape whatever the photograph's own is — the same
+    /// rule as `FlightHero.height`, and for the same reason: a band sized from
+    /// the photo was one height while it loaded and another once it had, so
+    /// the window spread open under the picture as it arrived.
     private var photoHeight: CGFloat {
-        let natural: CGFloat
-        if let image = image, image.size.width > 0 {
-            natural = width * image.size.height / image.size.width
-        } else {
-            natural = 220
-        }
-        return min(min(max(natural, 120), 300), maxPhotoHeight)
+        min(min(max(width * FlightHero.shape, 160), 300), maxPhotoHeight)
     }
 
     private var headerHeight: CGFloat { photoHeight + 48 }
