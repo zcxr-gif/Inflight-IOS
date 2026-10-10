@@ -30,7 +30,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # The app runs on iOS 18 and up but is built against the iOS 26 SDK,
+      # The app runs on iOS 17 and up but is built against the iOS 26 SDK,
       # whose APIs it uses behind availability checks, so which Xcode the
       # runner has is the difference between a real answer and a page of noise
       # about unavailable symbols. Printed first, and the newest is selected,
