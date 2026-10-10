@@ -385,13 +385,14 @@ struct MapLook: Equatable {
 
     /// The Mapbox style for this look.
     ///
-    /// Mapbox Standard for the cartography and Standard Satellite for imagery.
-    /// Both take their look from *configuration* rather than from a different
-    /// style — the light preset, the theme, which labels — and Mapbox applies a
-    /// change of configuration to the style already loaded, animated, without
-    /// reloading anything. So turning the app from light to dark, or the map
-    /// from faded to detailed, is a cross-fade rather than a reload; only the
-    /// step between cartography and imagery swaps the style itself.
+    /// Mapbox Standard for the cartography, the classic raster satellite for
+    /// flat imagery, and Standard Satellite for the globe. Standard takes its
+    /// look from *configuration* rather than from a different style — the
+    /// light preset, the theme, which labels — and Mapbox applies a change of
+    /// configuration to the style already loaded, animated, without reloading
+    /// anything. So turning the app from light to dark, or the map from faded
+    /// to detailed, is a cross-fade rather than a reload; only a step between
+    /// two `Stylesheet`s swaps the style itself.
     ///
     /// Points of interest stay off everywhere: the map is a backdrop for
     /// traffic, and a scattering of restaurant pins competes with the aircraft
@@ -400,23 +401,35 @@ struct MapLook: Equatable {
     /// not drawing a city's worth of extrusions is a good share of what keeps a
     /// pinch at the display's full frame rate.
     func mapStyle(isLight: Bool) -> MapStyle {
-        guard !resolvedPalette.usesImagery else {
+        switch stylesheet {
+        case .rasterSatellite:
+            // Flat imagery carries no labels at all, so the traffic is the only
+            // legible thing on screen — which is exactly Mapbox's classic
+            // satellite style: one raster source and nothing else. Standard
+            // Satellite drew the same photographs, but brought the whole of
+            // Standard with them — imported fragments, models, lighting, and a
+            // street network fetched for labels this look switches off — and
+            // that is what made the imagery so slow to arrive.
+            return .satellite
+
+        case .standardSatellite:
             // Imagery is a photograph and has no night of its own; the wash is
-            // what dims it. Flat it carries no labels at all, so the traffic is
-            // the only legible thing on screen. The globe keeps place names
-            // and borders, because a hemisphere with nothing written on it is
-            // a hemisphere you cannot identify.
-            let named = projection == .globe
+            // what dims it. The globe keeps place names and borders, because a
+            // hemisphere with nothing written on it is a hemisphere you cannot
+            // identify, and those need Standard Satellite.
             return .standardSatellite(
                 lightPreset: .day,
                 showPointOfInterestLabels: false,
                 showTransitLabels: false,
-                showPlaceLabels: named,
+                showPlaceLabels: true,
                 showRoadLabels: false,
                 showRoadsAndTransit: false,
                 showPedestrianRoads: false,
-                showAdminBoundaries: named
+                showAdminBoundaries: true
             )
+
+        case .standard:
+            break
         }
 
         let theme: StandardTheme
@@ -434,6 +447,22 @@ struct MapLook: Equatable {
             showPedestrianRoads: isDetailed,
             show3dObjects: false
         )
+    }
+
+    /// Which Mapbox stylesheet this look is drawn with.
+    ///
+    /// Moving between two of these is a full style load — every source and
+    /// layer the app added goes with the old one — while anything within one
+    /// is configuration Mapbox applies in place.
+    enum Stylesheet: Equatable {
+        case standard
+        case standardSatellite
+        case rasterSatellite
+    }
+
+    var stylesheet: Stylesheet {
+        guard resolvedPalette.usesImagery else { return .standard }
+        return projection == .globe ? .standardSatellite : .rasterSatellite
     }
 
     /// The look an old install's single stored style becomes.
