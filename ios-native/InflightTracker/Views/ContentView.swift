@@ -1630,7 +1630,8 @@ struct ContentView: View {
                 theme: theme,
                 peakHeight: AirportPanel.peakHeight,
                 isExpanded: $isAirportExpanded,
-                onClose: { sheet = nil }
+                onClose: { sheet = nil },
+                closeLabel: "Close the airport panel"
             ) {
                 airportSheet(icao)
                     .id(icao)

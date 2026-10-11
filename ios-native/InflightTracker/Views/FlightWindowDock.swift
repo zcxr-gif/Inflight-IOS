@@ -75,6 +75,9 @@ struct FlightWindowDock<Content: View>: View {
     /// lowered it. See `FlightWindowTravel`.
     var travel: FlightWindowTravel? = nil
 
+    /// What the grabber says it does, for a window that is not a flight's.
+    var closeLabel: String = "Close the flight window"
+
     @ViewBuilder let content: Content
 
     /// How far the finger has carried the window, downwards positive. Let go
@@ -171,7 +174,7 @@ struct FlightWindowDock<Content: View>: View {
             // closing the window on it would be a surprise.
             .onTapGesture { onClose() }
             .accessibilityElement()
-            .accessibilityLabel("Close the flight window")
+            .accessibilityLabel(L(closeLabel))
             .accessibilityAddTraits(.isButton)
             .accessibilityAction { onClose() }
             .accessibilityAction(named: isExpanded ? "Show less" : "Open the full window") {
