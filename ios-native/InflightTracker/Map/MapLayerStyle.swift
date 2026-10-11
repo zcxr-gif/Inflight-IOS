@@ -118,6 +118,12 @@ enum MapLayerStyle {
     /// a country across. Every field with traffic inbound is a pin, and at a
     /// continent's width those are hundreds of pins over the traffic they are
     /// about. Close in, they are the few you are actually looking at.
+    ///
+    /// From there the pins are drawn whatever else is on the map. A field with
+    /// traffic has aircraft standing on it, and under the usual collision
+    /// rules the pin of every field worth marking was the one left out; the
+    /// aircraft draw over it instead, and only the ICAO under it gives way
+    /// when the map is crowded.
     static let fieldMinZoom: Double = 6
 
     // MARK: - Installing
@@ -519,7 +525,9 @@ enum MapLayerStyle {
                     "text-max-width": 12,
                     "text-optional": true,
                     "symbol-sort-key": ["get", "rank"],
-                    "icon-padding": 1
+                    "icon-padding": 1,
+                    "icon-allow-overlap": true,
+                    "icon-ignore-placement": true
                 },
                 "paint": {
                     "icon-opacity": ["get", "alpha"],
