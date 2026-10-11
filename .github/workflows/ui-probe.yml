@@ -23,8 +23,18 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: fields
+          - name: pre-weather
+            ref: e3dbe84fc18fa6421145c9163d4d002898df3e08
+            patch: ''
+          - name: weather
+            ref: 1548158b1ce87c939b38fbb80806cb684827d7ae
+            patch: ''
+          - name: latest
             ref: ''
+            patch: ''
+          - name: latest-noprecip
+            ref: ''
+            patch: noprecip
 
     steps:
       - uses: actions/checkout@v4
@@ -46,7 +56,13 @@ jobs:
           python3 - <<'PY'
           import os, re
           kind = os.environ["PATCH"]
-          if kind == "band":
+          if kind == "noprecip":
+              p = "Map/TrackerMapView.swift"
+              s = open(p).read()
+              s = s.replace("            syncPrecipitation(on: map)\n", "")
+              s = s.replace("                self.syncPrecipitation(on: map)\n", "")
+              open(p, "w").write(s)
+          elif kind == "band":
               p = "Views/MapDock.swift"
               s = open(p).read()
               start = s.index("    static var homeIndicatorBand: CGFloat {")
@@ -135,6 +151,7 @@ jobs:
           cp /tmp/probe/*.jpg /tmp/probe/*.txt /tmp/out/$NAME/ 2>/dev/null || true
           rm -f /tmp/out/$NAME/app-log.txt
           grep -vE "xctest|XCTQuery|User Defaults|com.apple.network|EventDispatch" /tmp/probe/app-log.txt | cut -c1-400 | tail -3000 > /tmp/out/$NAME/app-log-trimmed.txt || true
+          grep -E "\\[Map\\]|com.mapbox|Fault| E  Inflight" /tmp/probe/app-log.txt | grep -v xctest | cut -c1-400 | head -400 > /tmp/out/$NAME/app-map-log.txt || true
           cd /tmp/out
           git init -q
           git checkout -q -b probe-results-$NAME

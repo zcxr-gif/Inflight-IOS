@@ -1,6 +1,6 @@
 import XCTest
 
-/// Diagnostic only: the field pins, zoomed in over north-west Europe.
+/// Diagnostic only: is the traffic drawn?
 final class UIProbe: XCTestCase {
 
     func testProbe() throws {
@@ -14,19 +14,13 @@ final class UIProbe: XCTestCase {
         app.launch()
         let agree = app.buttons["Agree and continue"]
         if agree.waitForExistence(timeout: 15) { agree.tap() }
-        sleep(20)
-        shot("01-world")
-
-        let target = app.coordinate(withNormalizedOffset: CGVector(dx: 0.84, dy: 0.40))
-        for step in 0..<5 {
-            target.doubleTap()
-            sleep(2)
-            shot("02-zoom-\(step + 1)")
-        }
+        sleep(25)
+        shot("01-25s")
+        sleep(15)
+        shot("02-40s")
+        let target = app.coordinate(withNormalizedOffset: CGVector(dx: 0.80, dy: 0.36))
+        for _ in 0..<4 { target.doubleTap(); sleep(2) }
         sleep(10)
-        shot("03-settled")
-        target.doubleTap()
-        sleep(10)
-        shot("04-closer")
+        shot("03-zoomed")
     }
 }
