@@ -82,15 +82,38 @@ final class UIProbe: XCTestCase {
             sleep(2)
         }
 
+        // Push the dock down past the bar: the minimized stop.
+        let handle = app.buttons["Show more"]
+        if handle.exists {
+            let start = handle.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+            start.press(forDuration: 0.05, thenDragTo: start.withOffset(CGVector(dx: 0, dy: 140)))
+            sleep(2)
+            shot("03b-minimized")
+            note("after push down: handle label=\(app.buttons.matching(NSPredicate(format: "label == 'Show toolbar'")).firstMatch.exists ? "Show toolbar" : "other") friends=\(app.buttons["Friends"].exists)")
+            let restore = app.buttons["Show toolbar"]
+            if restore.exists { restore.tap(); sleep(2) }
+            note("after restore: friends=\(app.buttons["Friends"].exists)")
+        } else {
+            note("handle: MISSING")
+        }
+
         // Zoom in on a place, for the weather pill.
-        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4)).doubleTap()
-        sleep(1)
-        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4)).doubleTap()
-        sleep(1)
-        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4)).doubleTap()
-        sleep(8)
+        for _ in 0..<6 {
+            app.coordinate(withNormalizedOffset: CGVector(dx: 0.45, dy: 0.3)).doubleTap()
+            sleep(1)
+        }
+        sleep(10)
         shot("04-zoomed")
         try? app.debugDescription.write(to: out.appendingPathComponent("tree-zoomed.txt"), atomically: true, encoding: .utf8)
+        let pill = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Weather here'")).firstMatch
+        note("weather pill: exists=\(pill.exists)")
+        if pill.exists {
+            pill.tap()
+            sleep(3)
+            shot("04b-weather-card")
+            app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.55)).tap()
+            sleep(2)
+        }
 
         // Tap empty map: chrome should go away.
         app.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.5)).tap()

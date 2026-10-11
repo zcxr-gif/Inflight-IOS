@@ -516,17 +516,31 @@ struct TrackerMapView: UIViewRepresentable {
             options.attributionButton.position = .bottomLeading
             // Past the logo, which is about ninety points of wordmark.
             options.attributionButton.margins = CGPoint(x: x + 92, y: y)
-            mapView.ornaments.options = options
 
-            // The new constraints are in; laying them out inside a spring is
-            // what carries the logo up with the window instead of cutting it
+            // The first placement has nowhere to come from, and somebody who
+            // has asked for less movement gets the logo put straight there.
+            // Either way the layout is left to UIKit's own pass.
+            guard !isFirst, !UIAccessibility.isReduceMotionEnabled else {
+                mapView.ornaments.options = options
+                return
+            }
+
+            // Otherwise it glides: the new constraints laid out inside a
+            // spring carry the logo up with the window instead of cutting it
             // there. The same response as `Motion.chrome`, which is what the
             // window itself and the corner controls move on, so the three
-            // travel as one. Not on the first placement, which has nowhere to
-            // come from, and not for somebody who has asked for less movement.
-            guard !isFirst, !UIAccessibility.isReduceMotionEnabled else { return }
-            UIView.animate(springDuration: 0.36, bounce: 0, options: [.beginFromCurrentState, .allowUserInteraction]) {
-                mapView.layoutIfNeeded()
+            // travel as one.
+            //
+            // On the next turn of the run loop rather than here. This is
+            // called from `updateUIView`, inside SwiftUI's own update, and
+            // forcing a layout from there reaches back up into the hosting
+            // view while SwiftUI is still in the middle of it.
+            DispatchQueue.main.async { [weak mapView] in
+                guard let mapView else { return }
+                mapView.ornaments.options = options
+                UIView.animate(springDuration: 0.36, bounce: 0, options: [.beginFromCurrentState, .allowUserInteraction]) {
+                    mapView.layoutIfNeeded()
+                }
             }
         }
 

@@ -114,6 +114,12 @@ struct ContentView: View {
     /// so the keyboard is counted.
     @State private var dockRoom: CGFloat = 0
 
+    /// The band along the foot of the screen the home indicator sits in,
+    /// which the dock's island stands down into. Measured off the dock's
+    /// container rather than asked of the window: a UIKit read from inside the
+    /// body froze this whole screen. See `MapDock.reservedHeight`.
+    @State private var homeIndicatorBand: CGFloat = 0
+
     /// The toolbar panel open inside the dock's sheet, if one is. See
     /// `openPanel(_:)`.
     @State private var dockPanel: MapPanelKind?
@@ -594,7 +600,7 @@ struct ContentView: View {
         // sheet that is describing it.
         if let panel = openPanelBottomInset { return panel }
 
-        return selection == nil ? MapDock.reservedHeight(for: dockDetent) : flightWindowBottomInset
+        return selection == nil ? MapDock.reservedHeight(for: dockDetent, homeIndicatorBand: homeIndicatorBand) : flightWindowBottomInset
     }
 
     /// How much of the map's bottom edge an open panel sheet is covering, or
@@ -2048,6 +2054,14 @@ struct ContentView: View {
                 .onChange(of: proxy.size.height, initial: true) { _, height in
                     dockRoom = height
                 }
+                // The container runs down into the home indicator's band, so
+                // its safe area is that band. While the keyboard is up the
+                // container stops at the keyboard and reads nothing, which is
+                // not the band going away, so a zero is only taken while there
+                // has never been anything else.
+                .onChange(of: proxy.safeAreaInsets.bottom, initial: true) { _, band in
+                    if band > 0 || homeIndicatorBand == 0 { homeIndicatorBand = band }
+                }
             }
             // Into the home indicator's band, the way Safari's bar sits, but
             // not under the keyboard.
@@ -2378,7 +2392,7 @@ struct ContentView: View {
             // Close over the dock, and over the stats while they are up. No
             // legal lane on this side: the Mapbox logo and attribution are in
             // the other corner.
-            .padding(.bottom, MapDock.reservedHeight(for: dockDetent) + 8)
+            .padding(.bottom, MapDock.reservedHeight(for: dockDetent, homeIndicatorBand: homeIndicatorBand) + 8)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
             .ignoresSafeArea(.keyboard, edges: .bottom)
             .transition(.opacity.combined(with: .scale(scale: 0.9, anchor: .bottomTrailing)))

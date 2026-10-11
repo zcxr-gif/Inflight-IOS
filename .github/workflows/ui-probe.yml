@@ -23,15 +23,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: island-only
-            ref: 1f14fa5c32f1d3c3292f37c3241e9de795cd7baf
+          - name: fixed
+            ref: ''
             patch: ''
-          - name: main-no-band
-            ref: 38bd6f06c264155eeab00e25411b6c5be5c31a11
-            patch: band
-          - name: main-no-pill
-            ref: 38bd6f06c264155eeab00e25411b6c5be5c31a11
-            patch: pill
 
     steps:
       - uses: actions/checkout@v4

@@ -1,5 +1,4 @@
 import SwiftUI
-import UIKit
 
 /// Where the dock is resting.
 ///
@@ -162,18 +161,15 @@ struct MapDock: View {
     /// The island is laid out from the foot of the screen, not the safe area —
     /// its lower edge stands down into the home indicator's band, as Safari's
     /// does — so the band is taken back off here.
-    static func reservedHeight(for detent: MapDockDetent) -> CGFloat {
+    ///
+    /// The band is handed in, measured by SwiftUI off the dock's own container
+    /// (see `ContentView.homeIndicatorBand`). It used to be read off the key
+    /// window from inside the body, and with that read in it the main screen
+    /// stopped updating after its first pass — no traffic handed to the map,
+    /// and no button on it doing anything.
+    static func reservedHeight(for detent: MapDockDetent, homeIndicatorBand: CGFloat) -> CGFloat {
         let island = detent == .minimized ? minimizedHeight : islandHeight
         return max(island + islandMargin - homeIndicatorBand, 0)
-    }
-
-    /// The band along the foot of the screen the home indicator sits in. Read
-    /// off the window rather than a view, because a view's safe area grows
-    /// with the keyboard and this must not.
-    static var homeIndicatorBand: CGFloat {
-        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
-        let scene = scenes.first { $0.activationState == .foregroundActive } ?? scenes.first
-        return scene?.keyWindow?.safeAreaInsets.bottom ?? 0
     }
 
     /// Room left above the full sheet, under the status bar.
