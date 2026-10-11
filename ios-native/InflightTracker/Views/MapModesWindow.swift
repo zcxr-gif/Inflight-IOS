@@ -62,6 +62,8 @@ struct MapModesWindow: View {
             RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous)
                 .strokeBorder(theme.stroke, lineWidth: 1)
         }
+        // Out of the dock's island, like every window — see `WindowBirth`.
+        .bornFromDock(theme: theme, topRadius: Self.cornerRadius, bottomRadius: Self.cornerRadius)
         .shadow(color: .black.opacity(0.25), radius: 22, y: 6)
         .offset(y: max(pull, 0))
         .environment(\.colorScheme, theme.colorScheme)

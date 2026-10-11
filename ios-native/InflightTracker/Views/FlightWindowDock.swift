@@ -147,6 +147,9 @@ struct FlightWindowDock<Content: View>: View {
                     .allowsHitTesting(false)
             }
             .overlay(alignment: .top) { grabber }
+            // Out of the dock's island when it opens, and back into it when
+            // it closes — see `WindowBirth`.
+            .bornFromDock(theme: theme, topRadius: BottomEdge.cornerRadius, bottomRadius: 0)
             .shadow(color: .black.opacity(0.22), radius: 18, y: -2)
             // The whole window is the thing to pull at its peek, which does not
             // scroll. Open, the window is a scroll view, and a pull anywhere on

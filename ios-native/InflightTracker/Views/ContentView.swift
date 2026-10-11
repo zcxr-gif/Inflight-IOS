@@ -80,6 +80,15 @@ struct ContentView: View {
     /// it.
     @State private var isWindowExpanded = false
 
+    /// Whether a field's window is open all the way, on a phone. Its own,
+    /// so opening a field never inherits how far the last flight was pulled.
+    @State private var isAirportExpanded = false
+
+    /// The map's stack, in global coordinates — where the dock's island is
+    /// worked out from for the windows that grow out of it. See
+    /// `dockIslandFrame`.
+    @State private var mapGlobalFrame: CGRect = .zero
+
     /// How far a pull has lowered the window, for the controls standing on it.
     @State private var flightWindowTravel = FlightWindowTravel()
 
@@ -385,7 +394,9 @@ struct ContentView: View {
                 // as a sheet on a tablet it is a form sheet parked over the
                 // middle of the map, which is exactly where opening it has just
                 // put the field. See `airportPane`.
-                if case .airport = sheet, usesFlightPane { return nil }
+                // On a phone it stands in the map's stack too, out of the
+                // dock the way the flight window does. See `airportDock`.
+                if case .airport = sheet { return nil }
                 // The flight window is never a presentation: a dock on a
                 // phone, a pane on a tablet, both laid out in the map's own
                 // stack.
@@ -575,6 +586,29 @@ struct ContentView: View {
     private var airportPaneIcao: String? {
         guard usesFlightPane, case .airport(let icao) = sheet else { return nil }
         return icao
+    }
+
+    /// The field whose window is standing on the bottom edge on a phone, if
+    /// there is one. See `airportDock`.
+    private var airportDockIcao: String? {
+        guard !usesFlightPane, case .airport(let icao) = sheet else { return nil }
+        return icao
+    }
+
+    /// Where the dock's island stands at its resting stop, in global
+    /// coordinates: the rectangle every window grows out of and folds back
+    /// into. Worked out rather than measured off the dock, which is not on
+    /// screen while a window is, and which moves under the finger.
+    private var dockIslandFrame: CGRect {
+        guard !mapGlobalFrame.isEmpty else { return .zero }
+        let margin = MapDock.islandMargin
+        let foot = mapGlobalFrame.maxY + homeIndicatorBand - margin
+        return CGRect(
+            x: mapGlobalFrame.minX + margin,
+            y: foot - MapDock.islandHeight,
+            width: max(mapGlobalFrame.width - margin * 2, 0),
+            height: MapDock.islandHeight
+        )
     }
 
     /// Whether either window is standing on the map as a pane — which is the
@@ -1108,6 +1142,7 @@ struct ContentView: View {
             }
             replayBar
             flightDock
+            airportDock
             flightPane
             airportPane
             mapModes
@@ -1118,6 +1153,9 @@ struct ContentView: View {
             mapAreaSize = $0
             noteHomeIndicatorBand()
         }
+        .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { mapGlobalFrame = $0 }
+        // What the windows below grow out of. See `WindowBirth`.
+        .environment(\.dockIsland, dockIslandFrame)
         // An aeroplane opening takes the bottom of the screen, and the map's
         // window gives it up.
         .onChange(of: selection) { _, opened in
@@ -1147,7 +1185,8 @@ struct ContentView: View {
                 .padding(.horizontal, 10)
                 .padding(.bottom, 10)
             }
-            .transition(.move(edge: .bottom).combined(with: .opacity))
+            // Out of the dock's island, like every window.
+            .transition(.bornFromDock)
             .zIndex(10)
         }
     }
@@ -1239,6 +1278,7 @@ struct ContentView: View {
         // A field's pane arrives and leaves on the same beat the flight
         // window's does, and so does the chrome that steps aside for it.
         .motion(Motion.chrome, value: airportPaneIcao)
+        .motion(Motion.chrome, value: airportDockIcao)
         // The same spring the dock settles its own sheet with, so the sheet
         // and everything that steps out of its way move as one thing.
         .motion(Motion.chrome, value: dockDetent)
@@ -1360,7 +1400,9 @@ struct ContentView: View {
             if value != .flight, selection != nil { selection = nil }
             // A field's pane takes the dock away — see `mapToolbar`. Left up,
             // the sheet would go on hiding the corner controls for nothing.
-            if case .airport = value, usesFlightPane { dockDetent = .collapsed }
+            if case .airport = value { dockDetent = .collapsed }
+            // A field opens at its peek, whichever field was open before.
+            if case .airport = value { isAirportExpanded = false }
             // A field tapped, or a window opened from anywhere, with the
             // chrome put away: it comes back with it.
             if value != nil { isChromeHidden = false }
@@ -1568,7 +1610,33 @@ struct ContentView: View {
                     // `FlightDetailView.resetForNewFlight()`.
                     .environmentObject(feed)
             }
-            .transition(.move(edge: .bottom))
+            // Out of the dock's island, and back into it.
+            .transition(.bornFromDock)
+        }
+    }
+
+    /// A field's window on a phone, standing on the bottom edge the way the
+    /// flight window does — and born from the dock the same way, rather than
+    /// thrown up from the bottom as a system sheet over everything.
+    ///
+    /// The same two stops: the peek, which answers the weather and how busy
+    /// the field is, and the full window. Its lists scroll only at the top
+    /// stop; short of it a drag anywhere moves the window, as the flight
+    /// window's does.
+    @ViewBuilder
+    private var airportDock: some View {
+        if let icao = airportDockIcao {
+            FlightWindowDock(
+                theme: theme,
+                peakHeight: AirportPanel.peakHeight,
+                isExpanded: $isAirportExpanded,
+                onClose: { sheet = nil }
+            ) {
+                airportSheet(icao)
+                    .id(icao)
+                    .scrollDisabled(!isAirportExpanded)
+            }
+            .transition(.bornFromDock)
         }
     }
 
@@ -1997,11 +2065,12 @@ struct ContentView: View {
     /// the window's own controls rather than hiding behind it.
     @ViewBuilder
     private var mapToolbar: some View {
-        // Not under a field's pane either. On a phone the field's sheet covers
-        // the dock; a pane covers the bottom edge only when it is the centred
-        // one, and a dock running under a column's foot is a dock half hidden.
-        // Gone while either window is up, the same on both devices.
-        if selection == nil, airportPaneIcao == nil {
+        // Not under a field's window either. On a phone the field's window
+        // grows out of the dock, the way the flight window does; a pane covers
+        // the bottom edge only when it is the centred one, and a dock running
+        // under a column's foot is a dock half hidden. Gone while either
+        // window is up, the same on both devices.
+        if selection == nil, airportPaneIcao == nil, airportDockIcao == nil {
             GeometryReader { proxy in
                 VStack(spacing: 8) {
                     // One sheet, with the handle on it, the search field across
@@ -2061,7 +2130,11 @@ struct ContentView: View {
             .ignoresSafeArea(.container, edges: .bottom)
             // Not deaf to the keyboard: the sheet rides up on it while a query
             // is being typed, and its full height is what is left above it.
-            .transition(.opacity.combined(with: .move(edge: .bottom)))
+            //
+            // In place, rather than sliding off: a window opening grows out of
+            // this island and a window closing folds back into it, so the bar
+            // only has to fade where it stands. See `WindowBirth`.
+            .transition(.opacity)
         }
     }
 
@@ -2350,7 +2423,7 @@ struct ContentView: View {
     /// the flat map could never be black.
     @ViewBuilder
     private var mapStyleControl: some View {
-        if selection == nil, !replay.isActive, !dockDetent.isRaised {
+        if selection == nil, airportDockIcao == nil, !replay.isActive, !dockDetent.isRaised {
             VStack(spacing: 8) {
                 // One stack, one piece of chrome, so this corner reads as the
                 // map's own furniture rather than as loose buttons that happen
