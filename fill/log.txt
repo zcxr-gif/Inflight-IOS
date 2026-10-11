@@ -1,0 +1,3 @@
+hint on map: 0
+expand exists: false
+collapse exists: true
