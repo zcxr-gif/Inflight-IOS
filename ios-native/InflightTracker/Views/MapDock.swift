@@ -162,8 +162,8 @@ struct MapDock: View {
     /// its lower edge stands down into the home indicator's band, as Safari's
     /// does — so the band is taken back off here.
     ///
-    /// The band is handed in, measured by SwiftUI off the dock's own container
-    /// (see `ContentView.homeIndicatorBand`). It used to be read off the key
+    /// The band is handed in, worked out from heights SwiftUI measures (see
+    /// `ContentView.noteHomeIndicatorBand`). It used to be read off the key
     /// window from inside the body, and with that read in it the main screen
     /// stopped updating after its first pass — no traffic handed to the map,
     /// and no button on it doing anything.

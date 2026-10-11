@@ -115,9 +115,10 @@ struct ContentView: View {
     @State private var dockRoom: CGFloat = 0
 
     /// The band along the foot of the screen the home indicator sits in,
-    /// which the dock's island stands down into. Measured off the dock's
-    /// container rather than asked of the window: a UIKit read from inside the
-    /// body froze this whole screen. See `MapDock.reservedHeight`.
+    /// which the dock's island stands down into. Worked out from measured
+    /// heights (`noteHomeIndicatorBand`) rather than asked of the window: a
+    /// UIKit read from inside the body froze this whole screen. See
+    /// `MapDock.reservedHeight`.
     @State private var homeIndicatorBand: CGFloat = 0
 
     /// The toolbar panel open inside the dock's sheet, if one is. See
@@ -1109,7 +1110,10 @@ struct ContentView: View {
         }
         // What the panes are laid out in, so the map can be told exactly how
         // much of it they cover. See `mapAreaSize`.
-        .onGeometryChange(for: CGSize.self) { $0.size } action: { mapAreaSize = $0 }
+        .onGeometryChange(for: CGSize.self) { $0.size } action: {
+            mapAreaSize = $0
+            noteHomeIndicatorBand()
+        }
         // An aeroplane opening takes the bottom of the screen, and the map's
         // window gives it up.
         .onChange(of: selection) { _, opened in
@@ -2053,14 +2057,7 @@ struct ContentView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
                 .onChange(of: proxy.size.height, initial: true) { _, height in
                     dockRoom = height
-                }
-                // The container runs down into the home indicator's band, so
-                // its safe area is that band. While the keyboard is up the
-                // container stops at the keyboard and reads nothing, which is
-                // not the band going away, so a zero is only taken while there
-                // has never been anything else.
-                .onChange(of: proxy.safeAreaInsets.bottom, initial: true) { _, band in
-                    if band > 0 || homeIndicatorBand == 0 { homeIndicatorBand = band }
+                    noteHomeIndicatorBand()
                 }
             }
             // Into the home indicator's band, the way Safari's bar sits, but
@@ -2070,6 +2067,23 @@ struct ContentView: View {
             // is being typed, and its full height is what is left above it.
             .transition(.opacity.combined(with: .move(edge: .bottom)))
         }
+    }
+
+    /// The home indicator's band, worked out from two heights SwiftUI already
+    /// measures: the dock's container runs down to the foot of the screen,
+    /// and the stack the map's chrome stands in stops at the safe area, so the
+    /// difference is the band.
+    ///
+    /// While the keyboard is up both stop at the keyboard and the difference
+    /// is nothing, which is not the band going away, so a zero is only taken
+    /// while there has never been anything else. And the two are measured
+    /// separately, so mid-rotation one can be the old orientation's: anything
+    /// taller than a home indicator has ever been is that, not a band.
+    private func noteHomeIndicatorBand() {
+        guard dockRoom > 0, mapAreaSize.height > 0 else { return }
+        let band = max(dockRoom - mapAreaSize.height, 0)
+        guard band != homeIndicatorBand, band <= 64, band > 0 || homeIndicatorBand == 0 else { return }
+        homeIndicatorBand = band
     }
 
     /// The way in to your profile: an avatar beside the search field.
