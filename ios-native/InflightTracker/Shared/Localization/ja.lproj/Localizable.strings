@@ -1708,3 +1708,6 @@
 "The planet has colours of its own, below." = "惑星には独自の色があります（下記）。";
 "Satellite imagery has nothing to edit. Pick a drawn map to customise it." = "衛星画像には編集できる項目がありません。カスタマイズするには描画された地図を選んでください。";
 "The globe takes the light, the names and the borders." = "地球儀では光、名前、境界線を変更できます。";
+
+"Weather at fields" = "空港の天気";
+"Marks every field where it is raining, snowing, storming or foggy, and zoomed in over one, the rain or snow falls on the map, with lightning in a storm and haze in fog. From the same reports, so it costs nothing." = "雨・雪・雷雨・霧の空港に印を付け、近くまでズームすると地図に雨や雪が降り、雷雨では稲妻、霧ではかすみが表示されます。同じ観測報から作るので追加の通信はありません。";

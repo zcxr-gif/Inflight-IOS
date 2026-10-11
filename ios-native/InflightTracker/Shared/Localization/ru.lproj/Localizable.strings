@@ -1708,3 +1708,6 @@
 "The planet has colours of its own, below." = "У планеты свои цвета — ниже.";
 "Satellite imagery has nothing to edit. Pick a drawn map to customise it." = "В спутниковых снимках нечего настраивать. Выберите нарисованную карту, чтобы её изменить.";
 "The globe takes the light, the names and the borders." = "Для глобуса доступны освещение, названия и границы.";
+
+"Weather at fields" = "Погода на аэродромах";
+"Marks every field where it is raining, snowing, storming or foggy, and zoomed in over one, the rain or snow falls on the map, with lightning in a storm and haze in fog. From the same reports, so it costs nothing." = "Отмечает каждый аэродром, где идёт дождь, снег, гроза или стоит туман, а при приближении к нему дождь или снег падает прямо на карту — с молниями в грозу и дымкой в тумане. Из тех же сводок, поэтому ничего не стоит.";

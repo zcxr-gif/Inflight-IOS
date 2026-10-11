@@ -195,6 +195,15 @@ struct WeatherSettingsPanel: View {
                 PanelDivider()
 
                 PanelToggleRow(
+                    title: "Weather at fields",
+                    symbol: "cloud.rain.fill",
+                    detail: "Marks every field where it is raining, snowing, storming or foggy, and zoomed in over one, the rain or snow falls on the map, with lightning in a storm and haze in fog. From the same reports, so it costs nothing.",
+                    isOn: $preferences.showsFieldWeather
+                )
+
+                PanelDivider()
+
+                PanelToggleRow(
                     title: "Weather chip",
                     symbol: "cloud.sun.fill",
                     detail: "The pill top left while an aircraft is open, reporting the field it is passing.",

@@ -1708,3 +1708,6 @@
 "The planet has colours of its own, below." = "ग्रह के अपने रंग हैं, नीचे देखें।";
 "Satellite imagery has nothing to edit. Pick a drawn map to customise it." = "उपग्रह चित्रों में बदलने को कुछ नहीं है। अनुकूलित करने के लिए बनाया गया नक्शा चुनें।";
 "The globe takes the light, the names and the borders." = "ग्लोब पर रोशनी, नाम और सीमाएँ बदली जा सकती हैं।";
+
+"Weather at fields" = "हवाई अड्डों का मौसम";
+"Marks every field where it is raining, snowing, storming or foggy, and zoomed in over one, the rain or snow falls on the map, with lightning in a storm and haze in fog. From the same reports, so it costs nothing." = "जहाँ बारिश, बर्फ़, आँधी-तूफ़ान या कोहरा है, उस हर हवाई अड्डे पर निशान लगाता है; और पास ज़ूम करने पर नक़्शे पर बारिश या बर्फ़ गिरती है, तूफ़ान में बिजली और कोहरे में धुंध के साथ। उन्हीं रिपोर्टों से, इसलिए कोई ख़र्च नहीं।";

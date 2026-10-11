@@ -1708,3 +1708,6 @@
 "The planet has colours of its own, below." = "La planète a ses propres couleurs, ci-dessous.";
 "Satellite imagery has nothing to edit. Pick a drawn map to customise it." = "L’imagerie satellite n’a rien à modifier. Choisissez une carte dessinée pour la personnaliser.";
 "The globe takes the light, the names and the borders." = "Le globe prend en compte la lumière, les noms et les frontières.";
+
+"Weather at fields" = "Météo aux terrains";
+"Marks every field where it is raining, snowing, storming or foggy, and zoomed in over one, the rain or snow falls on the map, with lightning in a storm and haze in fog. From the same reports, so it costs nothing." = "Signale chaque terrain où il pleut, neige, fait de l'orage ou du brouillard ; en zoomant sur l'un d'eux, la pluie ou la neige tombe sur la carte, avec des éclairs sous l'orage et un voile dans le brouillard. Tiré des mêmes bulletins, donc sans coût.";

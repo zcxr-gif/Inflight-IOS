@@ -179,6 +179,11 @@ struct ContentView: View {
     private var mapWeather: MapWeatherModel { mapWeatherOwner.value }
     @State private var isWeatherExpanded = false
 
+    /// What is falling where the map is looking, close in over a field — for
+    /// the lightning and the haze drawn over the map. The rain and snow
+    /// themselves the map draws. See `FieldWeather.Local`.
+    @State private var localWeather: FieldWeather.Local?
+
     /// The weather where the map is looking, for the pill top left while
     /// nothing is open. Held unobserved for the same reason the map weather
     /// is: the pill and its card watch it themselves.
@@ -855,6 +860,10 @@ struct ContentView: View {
             showsWindParticles: weatherPreferences.showsWindParticles,
             windHeat: weatherPreferences.windHeat,
             showsFieldConditions: weatherPreferences.showsFieldConditions,
+            showsFieldWeather: weatherPreferences.showsFieldWeather,
+            onLocalWeather: { local in
+                if local != localWeather { localWeather = local }
+            },
             onSelectAirport: { openAirport(fromMap: $0) },
             onTapEmpty: { tapEmptyMap() },
             highlighting: highlighting,
@@ -1091,6 +1100,10 @@ struct ContentView: View {
     private var mapStack: some View {
         ZStack(alignment: .top) {
             mapLayer
+            // Over the flat map only: the planet reports no weather of its own.
+            if !isPlanetMap, let localWeather {
+                FieldWeatherOverlay(weather: localWeather)
+            }
             if isChromeHidden {
                 brandMark
             } else {
