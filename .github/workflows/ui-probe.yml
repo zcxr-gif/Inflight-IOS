@@ -12,6 +12,9 @@ concurrency:
   group: ui-probe-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: write
+
 jobs:
   probe:
     runs-on: macos-15
@@ -96,16 +99,24 @@ jobs:
           grep -vE "com.apple|xctest|XCTQuery" /tmp/probe/app-log.txt | cut -c1-260 | head -120 || true
           for f in /tmp/probe/*.png; do
             n=$(basename "$f" .png)
-            sips -Z 520 -s format jpeg -s formatOptions 55 "$f" --out "/tmp/probe/$n.jpg" > /dev/null
-            echo "=== IMG $n"
-            base64 -i "/tmp/probe/$n.jpg" | tr -d '\n'
-            echo
-            echo "=== END IMG"
+            sips -Z 700 -s format jpeg -s formatOptions 60 "$f" --out "/tmp/probe/$n.jpg" > /dev/null
           done
-          for f in /tmp/probe/tree-map.txt /tmp/probe/tree-zoomed.txt; do
-            echo "=== TREE $f"
-            grep -E "Button|StaticText|Other, .*label" "$f" | cut -c1-200 | head -80 || true
-          done
+
+      - name: Publish the results to a scratch branch
+        if: always()
+        env:
+          NAME: ${{ matrix.name }}
+        run: |
+          mkdir -p /tmp/out/$NAME
+          cp /tmp/probe/*.jpg /tmp/probe/*.txt /tmp/out/$NAME/ 2>/dev/null || true
+          rm -f /tmp/out/$NAME/app-log.txt
+          grep -vE "xctest|XCTQuery|User Defaults|com.apple.network|EventDispatch" /tmp/probe/app-log.txt | cut -c1-400 | tail -3000 > /tmp/out/$NAME/app-log-trimmed.txt || true
+          cd /tmp/out
+          git init -q
+          git checkout -q -b probe-results-$NAME
+          git add -A
+          git -c user.name=probe -c user.email=probe@example.com commit -qm "probe $NAME"
+          git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" probe-results-$NAME
 
       - uses: actions/upload-artifact@v4
         if: always()
