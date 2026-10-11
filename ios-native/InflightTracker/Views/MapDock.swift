@@ -3,12 +3,18 @@ import UIKit
 
 /// Where the dock is resting.
 ///
-/// Three stops, the way every pull-up sheet on the phone has them: the bar
-/// along the bottom, half the screen, and the whole of it under the status bar.
+/// Four stops. The three every pull-up sheet on the phone has — the bar along
+/// the bottom, half the screen, and the whole of it under the status bar — and
+/// one under the bar, the way Maps has it: pushed down past the bar, the island
+/// lets the toolbar go and is the search field alone.
 enum MapDockDetent: Int, CaseIterable {
+    case minimized
     case collapsed
     case half
     case full
+
+    /// Pulled up over the map, rather than resting along the foot of it.
+    var isRaised: Bool { self == .half || self == .full }
 }
 
 /// What a toolbar panel is handed when it opens inside the dock's sheet rather
@@ -144,14 +150,21 @@ struct MapDock: View {
     static let islandHeight: CGFloat =
         cardTop + handleBand + MapSearchField.fieldHeight + rowGap + MapToolbar.height + islandPadding
 
-    /// How much of the map's bottom edge the collapsed dock covers, measured up
-    /// from the safe area, which is how the map and the corner controls ask.
+    /// The minimized island: the grabber and the search field, no toolbar.
+    static let minimizedHeight: CGFloat =
+        cardTop + handleBand + MapSearchField.fieldHeight + islandPadding
+
+    /// How much of the map's bottom edge the dock covers while it rests along
+    /// the foot, measured up from the safe area, which is how the map and the
+    /// corner controls ask. Raised stops answer as the bar does: the sheet is
+    /// over the map, not something the map frames around.
     ///
     /// The island is laid out from the foot of the screen, not the safe area —
     /// its lower edge stands down into the home indicator's band, as Safari's
     /// does — so the band is taken back off here.
-    static var reservedHeight: CGFloat {
-        max(islandHeight + islandMargin - homeIndicatorBand, 0)
+    static func reservedHeight(for detent: MapDockDetent) -> CGFloat {
+        let island = detent == .minimized ? minimizedHeight : islandHeight
+        return max(island + islandMargin - homeIndicatorBand, 0)
     }
 
     /// The band along the foot of the screen the home indicator sits in. Read
@@ -179,6 +192,7 @@ struct MapDock: View {
     static func height(for detent: MapDockDetent, in room: CGFloat) -> CGFloat {
         let full = max(room - topGap - islandMargin, islandHeight)
         switch detent {
+        case .minimized: return minimizedHeight
         case .collapsed: return islandHeight
         case .half: return min(max(islandHeight + 280, room * 0.5), full)
         case .full: return full
@@ -192,19 +206,31 @@ struct MapDock: View {
     private var fullHeight: CGFloat { Self.height(for: .full, in: room) }
 
     /// The sheet's height on this frame: the stop, plus the finger, never below
-    /// the bar and resisted past the top.
+    /// the search field alone and resisted past the top.
     private var liveHeight: CGFloat {
         let raw = restingHeight + pull + titlePull
         if raw > fullHeight {
             let over = raw - fullHeight
             return fullHeight + over * Self.overshootLimit / (over + 60)
         }
-        return max(raw, Self.islandHeight)
+        return max(raw, Self.minimizedHeight)
     }
 
     /// The bar stays on the foot of the sheet, except while the keyboard is up
-    /// — then the room is the results'.
-    private var showsToolbar: Bool { !isSearchFocused }
+    /// — then the room is the results' — and once the island has been pushed
+    /// all the way down to the search field alone.
+    private var showsToolbar: Bool {
+        !isSearchFocused && liveHeight > Self.minimizedHeight + 0.5
+    }
+
+    /// How much of the bar is showing, between the minimized island and the
+    /// bar's own stop. It rides the finger: pushing the island down slides the
+    /// bar under its foot and fades it, rather than snapping it away.
+    private var toolbarReveal: Double {
+        let travel = Self.islandHeight - Self.minimizedHeight
+        guard travel > 0 else { return 1 }
+        return Double(min(max((liveHeight - Self.minimizedHeight) / travel, 0), 1))
+    }
 
     /// Everything in the sheet that is not the scrolling body.
     private var chromeHeight: CGFloat {
@@ -273,6 +299,7 @@ struct MapDock: View {
                     action: onPanel
                 )
                 .padding(.top, Self.rowGap)
+                .opacity(toolbarReveal)
                 .simultaneousGesture(pullGesture)
                 .transition(.opacity.combined(with: .move(edge: .bottom)))
             }
@@ -281,6 +308,9 @@ struct MapDock: View {
         .padding(.top, Self.cardTop)
         .padding(.bottom, Self.islandPadding)
         .frame(width: islandWidth, height: liveHeight, alignment: .top)
+        // Pushed down towards the minimized stop the bar is taller than the
+        // island it is in, and slides out under its foot rather than over it.
+        .clipShape(RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous))
         .background {
             // An island with four rounded corners, clear of the screen's
             // edges, rather than a sheet running off the foot of the display.
@@ -390,7 +420,7 @@ struct MapDock: View {
     /// The grabber, the way every pull-up on the phone marks itself.
     private var handle: some View {
         Capsule()
-            .fill(theme.textSecondary.opacity(isHeld || detent != .collapsed ? 0.9 : 0.45))
+            .fill(theme.textSecondary.opacity(isHeld || detent.isRaised ? 0.9 : 0.45))
             .frame(width: isHeld ? 56 : 40, height: 5)
             .motion(Motion.control, value: isHeld)
             .frame(maxWidth: .infinity, minHeight: Self.handleBand)
@@ -406,6 +436,7 @@ struct MapDock: View {
 
     private var accessibilityLabel: String {
         switch detent {
+        case .minimized: return "Show toolbar"
         case .collapsed: return "Show more"
         case .half: return "Expand"
         case .full: return "Collapse"
@@ -460,6 +491,7 @@ struct MapDock: View {
     /// A tap on the handle: up a stop, and from the top back down to the bar.
     private func step() {
         switch detent {
+        case .minimized: settle(to: .collapsed)
         case .collapsed: settle(to: .half)
         case .half: settle(to: .full)
         case .full: settle(to: .collapsed)
