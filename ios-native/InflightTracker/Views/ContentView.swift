@@ -172,6 +172,12 @@ struct ContentView: View {
     private var mapWeather: MapWeatherModel { mapWeatherOwner.value }
     @State private var isWeatherExpanded = false
 
+    /// The weather where the map is looking, for the pill top left while
+    /// nothing is open. Held unobserved for the same reason the map weather
+    /// is: the pill and its card watch it themselves.
+    @StateObject private var areaWeatherOwner = Unobserved(AreaWeather())
+    private var areaWeather: AreaWeather { areaWeatherOwner.value }
+
     /// Playback of the open aircraft's own track, started from the window and
     /// watched on the map.
     @StateObject private var replay = FlightReplay()
@@ -588,7 +594,7 @@ struct ContentView: View {
         // sheet that is describing it.
         if let panel = openPanelBottomInset { return panel }
 
-        return selection == nil ? MapDock.reservedHeight : flightWindowBottomInset
+        return selection == nil ? MapDock.reservedHeight(for: dockDetent) : flightWindowBottomInset
     }
 
     /// How much of the map's bottom edge an open panel sheet is covering, or
@@ -712,9 +718,15 @@ struct ContentView: View {
     /// first; otherwise the chrome over the map is put away, or brought back.
     /// Never during a replay, which is driving the map and owns its bar.
     private func tapEmptyMap() {
+        // An open weather card goes first, whatever else is up: it is the
+        // thing the tap is most likely meant to put away.
+        if isWeatherExpanded {
+            withAnimation(Motion.control) { isWeatherExpanded = false }
+            return
+        }
         guard selection == nil, sheet == nil, !replay.isActive else { return }
         withAnimation(Motion.chrome) {
-            if !isChromeHidden, dockDetent != .collapsed {
+            if !isChromeHidden, dockDetent.isRaised {
                 dockDetent = .collapsed
             } else {
                 if !isChromeHidden { isWeatherExpanded = false }
@@ -819,6 +831,9 @@ struct ContentView: View {
             // world — see `RealWorldTraffic.report`.
             onRegionSettled: { centre, span in
                 RealWorldTraffic.shared.report(centre: centre, spanDegrees: span)
+                // And the weather pill, which comes up once the map is close
+                // enough to be looking at a place.
+                areaWeather.report(centre: centre, spanDegrees: span)
             },
             measurement: $measurement,
             showsTerminator: filters.showsTerminator,
@@ -950,7 +965,15 @@ struct ContentView: View {
         HStack(alignment: .top, spacing: 10) {
             if selection == nil {
                 // The search is in the dock along the bottom now, where the
-                // thumb is. The top of the map is left to the map.
+                // thumb is. The top of the map is left to the map — and to the
+                // weather where it is looking, once it is zoomed in on a place.
+                AreaWeatherPillSlot(
+                    area: areaWeather,
+                    theme: theme,
+                    isEnabled: showsAreaWeather,
+                    isExpanded: $isWeatherExpanded
+                )
+
                 Spacer(minLength: 0)
             } else {
                 // In the corner the search field has just vacated, rather than
@@ -970,6 +993,13 @@ struct ContentView: View {
         }
     }
 
+    /// Whether the map's own weather pill may come up: switched on, over the
+    /// flat map — the planet reports no settle to read a place from — and with
+    /// nothing open, where the flight window's chip stands instead.
+    private var showsAreaWeather: Bool {
+        weatherPreferences.isChipVisible && selection == nil && !isPlanetMap
+    }
+
     /// Map chrome, top down: the search field until an aircraft is open, then
     /// the weather chip in its place — it reports on where that aircraft is, so
     /// there is nothing for it to say without one.
@@ -981,6 +1011,30 @@ struct ContentView: View {
     private var topChrome: some View {
         VStack(alignment: .leading, spacing: 10) {
             topRow
+
+            // What either weather pill opens into: the map's, for where the
+            // map is looking, or the flight window's, for where the aircraft
+            // is. Under the row rather than inside it, so it has the whole
+            // width rather than what the avatar leaves.
+            if isWeatherExpanded {
+                Group {
+                    if selection == nil {
+                        AreaWeatherCardSlot(
+                            area: areaWeather,
+                            theme: theme,
+                            isEnabled: showsAreaWeather,
+                            isExpanded: $isWeatherExpanded
+                        )
+                    } else if weatherPreferences.isChipVisible {
+                        StationWeatherCard(model: weather, theme: theme)
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                withAnimation(Motion.control) { isWeatherExpanded = false }
+                            }
+                    }
+                }
+                .transition(.opacity.combined(with: .scale(scale: 0.92, anchor: .topLeading)))
+            }
 
             if weatherPreferences.mapLayer != .off {
                 MapWeatherBar(model: mapWeather, theme: theme)
@@ -1180,7 +1234,7 @@ struct ContentView: View {
         }
         // Let down to the bar, the sheet is the search field again.
         .onChange(of: dockDetent) { _, stop in
-            if stop == .collapsed, dockPanel != nil { dockPanel = nil }
+            if !stop.isRaised, dockPanel != nil { dockPanel = nil }
         }
         .onChange(of: selection?.id) { wasOpen, id in
             // A replay belongs to the aircraft it was started from, and to the
@@ -1732,7 +1786,7 @@ struct ContentView: View {
             query = ""
             withAnimation(Motion.chrome) {
                 dockPanel = kind
-                if dockDetent == .collapsed { dockDetent = kind.dockDetent }
+                if !dockDetent.isRaised { dockDetent = kind.dockDetent }
             }
             return
         }
@@ -1939,7 +1993,7 @@ struct ContentView: View {
                     // Above the sheet rather than over the map proper: it is an
                     // aside about the chrome it is sitting on. Only while the
                     // sheet is down — pulled up, it is the sheet's screen.
-                    if dockDetent == .collapsed {
+                    if !dockDetent.isRaised {
                         HintStrip(placement: .map, isFloating: true)
                             .padding(.horizontal, 10)
                     }
@@ -1987,13 +2041,17 @@ struct ContentView: View {
                     )
                     .environmentObject(feed)
                 }
-                // Side to side and down to the foot of the screen: the dock
-                // stands on the bottom edge rather than floating above it.
+                // Down to the foot of the screen: the dock floats a margin
+                // clear of the edges, and that margin is measured from the
+                // display's edge, not the safe area's.
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
                 .onChange(of: proxy.size.height, initial: true) { _, height in
                     dockRoom = height
                 }
             }
+            // Into the home indicator's band, the way Safari's bar sits, but
+            // not under the keyboard.
+            .ignoresSafeArea(.container, edges: .bottom)
             // Not deaf to the keyboard: the sheet rides up on it while a query
             // is being typed, and its full height is what is left above it.
             .transition(.opacity.combined(with: .move(edge: .bottom)))
@@ -2135,8 +2193,8 @@ struct ContentView: View {
     /// pulled up, so they stay visible above it. At the top stop the sheet is
     /// the whole screen and they are behind it with everything else.
     private var dockLift: CGFloat {
-        guard dockDetent != .collapsed, selection == nil, !replay.isActive else { return 0 }
-        return MapDock.height(for: .half, in: dockRoom) - MapDock.reservedHeight
+        guard dockDetent.isRaised, selection == nil, !replay.isActive else { return 0 }
+        return MapDock.height(for: .half, in: dockRoom) - MapDock.height(for: .collapsed, in: dockRoom)
     }
 
     /// Weather, at the top of the map's corner stack on the right.
@@ -2268,7 +2326,7 @@ struct ContentView: View {
     /// the flat map could never be black.
     @ViewBuilder
     private var mapStyleControl: some View {
-        if selection == nil, !replay.isActive, dockDetent == .collapsed {
+        if selection == nil, !replay.isActive, !dockDetent.isRaised {
             VStack(spacing: 8) {
                 // One stack, one piece of chrome, so this corner reads as the
                 // map's own furniture rather than as loose buttons that happen
@@ -2320,7 +2378,7 @@ struct ContentView: View {
             // Close over the dock, and over the stats while they are up. No
             // legal lane on this side: the Mapbox logo and attribution are in
             // the other corner.
-            .padding(.bottom, MapDock.reservedHeight + 8)
+            .padding(.bottom, MapDock.reservedHeight(for: dockDetent) + 8)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
             .ignoresSafeArea(.keyboard, edges: .bottom)
             .transition(.opacity.combined(with: .scale(scale: 0.9, anchor: .bottomTrailing)))

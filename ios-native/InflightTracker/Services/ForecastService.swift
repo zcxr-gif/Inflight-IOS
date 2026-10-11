@@ -1,3 +1,4 @@
+import Combine
 import CoreLocation
 import Foundation
 
@@ -194,6 +195,10 @@ final class ForecastService: ObservableObject {
         let days: [Day]
         let alerts: [Alert]
 
+        /// The US Air Quality Index where the point is, 0 to 500, or nil when
+        /// the air-quality service did not answer. See `AirQuality`.
+        let airQualityIndex: Int?
+
         /// The field's own zone, so the strip and the outlook are labelled in
         /// the hours somebody standing on that ground would call them.
         let timeZone: TimeZone
@@ -326,6 +331,22 @@ final class ForecastService: ObservableObject {
         )
     }
 
+    /// Loads a point's weather and waits for the answer: the snapshot, or nil
+    /// once the request has failed. Cancelled with the calling task.
+    @MainActor
+    func snapshot(loading key: String, at coordinate: CLLocationCoordinate2D) async -> Snapshot? {
+        load(key: key, coordinate: coordinate)
+        for await states in $states.values {
+            if Task.isCancelled { return nil }
+            switch states[key] {
+            case .ready(let snapshot): return snapshot
+            case .unavailable: return nil
+            default: continue
+            }
+        }
+        return nil
+    }
+
     // MARK: - Fetching
 
     /// Loads a point's weather. Safe to call on every appearance: fresh, in
@@ -367,6 +388,7 @@ final class ForecastService: ObservableObject {
             // rather than a missing forecast. Started first so the two are in
             // the air together.
             async let warnings = alerts(near: coordinate)
+            async let air = airQuality(at: coordinate)
 
             let (data, response) = try await URLSession.shared.data(from: url)
 
@@ -375,7 +397,12 @@ final class ForecastService: ObservableObject {
                 return (nil, "The forecast service returned \(status).")
             }
 
-            guard let snapshot = parse(data, at: coordinate, alerts: await warnings) else {
+            guard let snapshot = parse(
+                data,
+                at: coordinate,
+                alerts: await warnings,
+                airQualityIndex: await air
+            ) else {
                 return (nil, "The forecast service answered with nothing this panel could read.")
             }
 
@@ -446,7 +473,8 @@ final class ForecastService: ObservableObject {
     private static func parse(
         _ data: Data,
         at coordinate: CLLocationCoordinate2D,
-        alerts: [Alert]
+        alerts: [Alert],
+        airQualityIndex: Int?
     ) -> Snapshot? {
         guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let current = root["current"] as? [String: Any],
@@ -549,6 +577,7 @@ final class ForecastService: ObservableObject {
             hours: Array(hours),
             days: days(root["daily"] as? [String: Any], at: coordinate, in: timeZone, now: now),
             alerts: alerts,
+            airQualityIndex: airQualityIndex,
             timeZone: timeZone,
             fetched: Date()
         )
@@ -695,6 +724,35 @@ final class ForecastService: ObservableObject {
                 moonset: moon.moonset
             )
         }
+    }
+
+    // MARK: - Air quality
+
+    /// The US AQI at a point, from Open-Meteo's air-quality model — the same
+    /// provider and the same credit as the forecast, and like the warnings its
+    /// own request, so a failure here is a missing row rather than a missing
+    /// forecast.
+    private static func airQuality(at coordinate: CLLocationCoordinate2D) async -> Int? {
+        var components = URLComponents(string: "https://air-quality-api.open-meteo.com/v1/air-quality")
+        components?.queryItems = [
+            URLQueryItem(name: "latitude", value: String(format: "%.4f", coordinate.latitude)),
+            URLQueryItem(name: "longitude", value: String(format: "%.4f", coordinate.longitude)),
+            URLQueryItem(name: "current", value: "us_aqi")
+        ]
+        guard let url = components?.url else { return nil }
+
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 8
+
+        guard let (data, response) = try? await URLSession.shared.data(for: request),
+              (response as? HTTPURLResponse).map({ (200..<300).contains($0.statusCode) }) ?? true,
+              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let current = root["current"] as? [String: Any],
+              let value = (current["us_aqi"] as? NSNumber)?.doubleValue,
+              value.isFinite, value >= 0
+        else { return nil }
+
+        return Int(value.rounded())
     }
 
     // MARK: - Warnings
