@@ -1,0 +1,71 @@
+Attributes: Application, 0x10649e6e0, pid: 30030, label: 'Inflight'
+Element subtree:
+ →Application, 0x10649e6e0, pid: 30030, label: 'Inflight'
+    Window (Main), 0x10649e2c0, {{0.0, 0.0}, {402.0, 874.0}}
+      Other, 0x10649da80, {{0.0, 0.0}, {402.0, 874.0}}
+        Other, 0x10649eb00, {{0.0, 0.0}, {402.0, 874.0}}
+          Other, 0x10649dea0, {{0.0, 0.0}, {402.0, 874.0}}
+            Other, 0x1064b6ee0, {{0.0, 0.0}, {402.0, 874.0}}
+              Other, 0x1064b6ac0, {{0.0, 0.0}, {402.0, 874.0}}
+                Other, 0x10649ef20, {{0.0, 0.0}, {402.0, 874.0}}
+                Other, 0x1064bf550, {{0.0, 0.0}, {402.0, 874.0}}
+                Button, 0x10649f760, {{102.0, 374.0}, {44.0, 44.0}}, label: 'About this map'
+                Other, 0x1064c0e10, {{10.0, 397.0}, {85.0, 21.0}}
+              Button, 0x1064c01b0, {{344.0, 70.0}, {44.0, 44.0}}, label: 'Sign in'
+              Button, 0x10649f340, {{14.0, 424.0}, {374.0, 18.0}}, label: 'Expand'
+              StaticText, 0x1064c1650, {{18.0, 444.0}, {51.3, 31.3}}, label: 'ATC'
+              StaticText, 0x1064bf130, {{18.0, 478.3}, {171.3, 13.3}}, label: '7 positions open · Expert Server'
+              ScrollView, 0x1064bed10, {{14.0, 505.7}, {374.0, 262.3}}
+                Other, 0x1064c05d0, {{14.0, 505.7}, {374.0, 367.0}}
+                  StaticText, 0x1064de8d0, {{15.8, 505.7}, {56.7, 11.0}}, label: 'AIRPORTS'
+                  Button, 0x1064de9f0, {{14.0, 523.7}, {374.3, 156.3}}, label: 'VVTS, 🇻🇳, TAN SON NHAT, ATIS, Sphinx, GND, Declan, TWR, Declan, APP, Sphinx'
+                    StaticText, 0x1064deb10, {{28.0, 535.7}, {47.0, 20.3}}, label: 'VVTS'
+                    StaticText, 0x1064dec30, {{83.0, 539.2}, {16.0, 13.3}}, label: '🇻🇳'
+                    StaticText, 0x1064ded50, {{107.0, 540.3}, {75.3, 11.0}}, label: 'TAN SON NHAT'
+                    Image, 0x1064dee70, {{368.0, 541.0}, {5.7, 9.7}}, identifier: 'chevron.right', label: 'Forward'
+                    StaticText, 0x1064def90, {{35.0, 569.0}, {24.0, 11.0}}, label: 'ATIS'
+                    StaticText, 0x1064df0b0, {{75.0, 567.0}, {42.0, 15.0}}, label: 'Sphinx'
+                    StaticText, 0x1064df1d0, {{35.5, 597.0}, {23.0, 11.0}}, label: 'GND'
+                    StaticText, 0x1064df2f0, {{75.0, 595.0}, {42.0, 15.0}}, label: 'Declan'
+                    StaticText, 0x1064df410, {{35.2, 625.0}, {23.7, 11.0}}, label: 'TWR'
+                    StaticText, 0x1064df530, {{75.0, 623.0}, {42.0, 15.0}}, label: 'Declan'
+                    StaticText, 0x1064df650, {{36.3, 653.0}, {21.3, 11.0}}, label: 'APP'
+                    StaticText, 0x1064df770, {{75.0, 651.0}, {42.0, 15.0}}, label: 'Sphinx'
+                  Button, 0x1064df890, {{14.0, 681.0}, {374.3, 128.3}}, label: 'VVNB, 🇻🇳, NOI BAI, ATIS, Exploser, GND, Exploser, TWR, Exploser'
+                    StaticText, 0x1064df9b0, {{28.0, 693.0}, {49.0, 20.3}}, label: 'VVNB'
+                    StaticText, 0x1064dfad0, {{85.0, 696.5}, {16.0, 13.3}}, label: '🇻🇳'
+                    StaticText, 0x1064dfbf0, {{109.0, 697.7}, {38.3, 11.0}}, label: 'NOI BAI'
+                    Image, 0x1064dfd10, {{368.0, 698.3}, {5.7, 9.7}}, identifier: 'chevron.right', label: 'Forward'
+                    StaticText, 0x1064dfe30, {{35.0, 726.3}, {24.0, 11.0}}, label: 'ATIS'
+                    StaticText, 0x1064dff50, {{75.0, 724.3}, {53.0, 15.0}}, label: 'Exploser'
+                    StaticText, 0x1064e0070, {{35.5, 754.3}, {23.0, 11.0}}, label: 'GND'
+                    StaticText, 0x1064e0190, {{75.0, 752.3}, {53.0, 15.0}}, label: 'Exploser'
+                    StaticText, 0x1064e02b0, {{35.2, 782.3}, {23.7, 11.0}}, label: 'TWR'
+                    StaticText, 0x1064e03d0, {{75.0, 780.3}, {53.0, 15.0}}, label: 'Exploser'
+                  StaticText, 0x1064e04f0, {{17.3, 823.3}, {337.8, 25.3}}, label: 'Hint: Tap any field to open it: the same controllers, plus its weather and everything inbound.'
+                    Image, 0x1064e0610, {{17.3, 825.3}, {7.7, 13.0}}, identifier: 'lightbulb', label: 'lightbulb'
+                    StaticText, 0x1064e0730, {{35.2, 823.3}, {320.0, 25.3}}, label: 'Tap any field to open it: the same controllers, plus its weather and everything inbound.'
+                  Button, 0x1064e0850, {{364.3, 823.3}, {22.0, 22.0}}, identifier: 'xmark', label: 'Dismiss this hint'
+              Button, 0x1064e0970, {{18.0, 782.0}, {73.3, 48.0}}, label: 'Friends'
+                Image, 0x1064e0a90, {{42.3, 789.3}, {26.0, 17.7}}, identifier: 'person.2', label: 'person.2'
+                StaticText, 0x1064e0bb0, {{35.3, 812.2}, {38.7, 12.7}}, label: 'Friends'
+              Button, 0x1064e0cd0, {{91.3, 782.0}, {73.0, 48.0}}, label: 'ATC, 7 positions open', Selected
+                Image, 0x1064e0df0, {{116.3, 790.0}, {23.0, 16.0}}, identifier: 'dot.radiowaves.left.and.right', label: 'Radio'
+                StaticText, 0x1064e0f10, {{137.8, 784.5}, {6.0, 11.0}}, label: '7'
+                StaticText, 0x1064e1030, {{117.2, 812.2}, {21.3, 12.7}}, label: 'ATC'
+              Button, 0x1064e1150, {{164.3, 782.0}, {73.3, 48.0}}, label: 'Airports'
+                Image, 0x1064e1270, {{192.3, 787.7}, {17.3, 20.7}}, identifier: 'building.2', label: 'Business'
+                StaticText, 0x1064e1390, {{180.0, 812.2}, {42.0, 12.7}}, label: 'Airports'
+              Button, 0x1064e14b0, {{237.7, 782.0}, {73.0, 48.0}}, label: 'Filters'
+                Image, 0x1064e15d0, {{265.3, 790.7}, {18.0, 15.0}}, identifier: 'slider.horizontal.3', label: 'Edit'
+                StaticText, 0x1064e16f0, {{258.0, 812.2}, {32.3, 12.7}}, label: 'Filters'
+              Button, 0x1064e1810, {{310.7, 782.0}, {73.3, 48.0}}, label: 'Settings'
+                Image, 0x1064e1930, {{338.0, 788.7}, {19.0, 19.0}}, identifier: 'gearshape', label: 'gearshape'
+                StaticText, 0x1064e1a50, {{325.8, 812.2}, {43.0, 12.7}}, label: 'Settings'
+Path to element:
+ →Application, 0x10649e6e0, pid: 30030, label: 'Inflight'
+Query chain:
+ →Find: Target Application 'com.tracker.Inflight'
+  Output: {
+    Application, 0x106498dd0, pid: 30030, label: 'Inflight'
+  }

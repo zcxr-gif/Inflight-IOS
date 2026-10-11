@@ -1,0 +1,75 @@
+Attributes: Application, 0x106498dd0, pid: 30030, label: 'Inflight'
+Element subtree:
+ →Application, 0x106498dd0, pid: 30030, label: 'Inflight'
+    Window (Main), 0x1064d06e0, {{0.0, 0.0}, {402.0, 874.0}}
+      Other, 0x1064d0950, {{0.0, 0.0}, {402.0, 874.0}}
+        Other, 0x1064c6fd0, {{0.0, 0.0}, {402.0, 874.0}}
+          Other, 0x1064c6e80, {{0.0, 0.0}, {402.0, 874.0}}
+            Other, 0x1064d0800, {{0.0, 0.0}, {402.0, 874.0}}
+              Other, 0x1064c70f0, {{0.0, 0.0}, {402.0, 874.0}}
+                Other, 0x1064c7210, {{0.0, 0.0}, {402.0, 874.0}}
+                Other, 0x1064c7330, {{0.0, 0.0}, {402.0, 874.0}}
+                Button, 0x1064c7450, {{102.0, 374.0}, {44.0, 44.0}}, label: 'About this map'
+                Other, 0x1064c7570, {{10.0, 397.0}, {85.0, 21.0}}
+              Button, 0x1064c7690, {{344.0, 70.0}, {44.0, 44.0}}, label: 'Sign in'
+              Button, 0x1064c77b0, {{14.0, 424.0}, {374.0, 18.0}}, label: 'Expand'
+              StaticText, 0x1064c78d0, {{18.0, 444.0}, {95.0, 31.3}}, label: 'Friends'
+              StaticText, 0x1064c79f0, {{18.0, 478.3}, {110.7, 13.3}}, label: 'Nobody watched yet'
+              ScrollView, 0x1064c7b10, {{14.0, 505.7}, {374.0, 262.3}}
+                Other, 0x1064c7c30, {{14.0, 505.7}, {374.0, 760.7}}
+                  StaticText, 0x1064c7d50, {{16.0, 505.7}, {137.7, 11.0}}, label: 'NOTIFICATIONS ARE OFF'
+                  StaticText, 0x1064c7e70, {{28.0, 535.7}, {335.7, 27.7}}, label: 'Allow notifications and you'll be told the moment a watched pilot leaves the ground.'
+                  Button, 0x1064c7f90, {{28.0, 573.3}, {346.0, 35.7}}, label: 'Allow notifications'
+                  StaticText, 0x1064c80b0, {{16.0, 635.0}, {71.3, 11.0}}, label: 'ADD A PILOT'
+                  Image, 0x1064c81d0, {{29.0, 672.7}, {12.3, 12.7}}, identifier: 'at', label: 'Connect'
+                  TextField, 0x1064c82f0, {{50.3, 668.0}, {287.7, 22.0}}, placeholderValue: 'Display name'
+                  Button, 0x1064c8410, {{346.0, 665.0}, {28.0, 28.0}}, identifier: 'plus', label: 'Add', Disabled
+                  StaticText, 0x1064c8530, {{28.0, 701.0}, {346.0, 25.3}}, label: 'Their Infinite Flight display name, spelled the way it appears on the map. Room for 3 more on a free account.'
+                  StaticText, 0x1064c8650, {{16.0, 752.3}, {60.0, 11.0}}, label: 'WATCHING'
+                  Image, 0x1064c8770, {{183.3, 806.7}, {36.7, 24.7}}, identifier: 'person.2', label: 'person.2'
+                  StaticText, 0x1064c8890, {{139.7, 841.7}, {122.7, 17.0}}, label: 'Nobody on the list'
+                  StaticText, 0x1064c89b0, {{36.5, 866.7}, {329.0, 26.3}}, label: 'Add an Infinite Flight display name above, or open an aircraft and add the pilot from its window.'
+                  StaticText, 0x1064c8ad0, {{16.0, 941.0}, {116.0, 11.0}}, label: 'PILOTS ON INFLIGHT'
+                  Button, 0x1064c8bf0, {{14.0, 959.0}, {374.0, 70.3}}, label: 'Find a pilot, Search by handle, by name, or by the Infinite Flight name on somebody's aeroplane.'
+                    Image, 0x1064c8d10, {{31.7, 973.3}, {12.7, 12.7}}, identifier: 'magnifyingglass', label: 'Search'
+                    StaticText, 0x1064c8e30, {{58.0, 971.0}, {72.7, 17.0}}, label: 'Find a pilot'
+                    StaticText, 0x1064c8f50, {{58.0, 992.0}, {265.0, 25.3}}, label: 'Search by handle, by name, or by the Infinite Flight name on somebody's aeroplane.'
+                    Image, 0x1064c9070, {{367.7, 989.3}, {5.7, 9.7}}, identifier: 'chevron.right', label: 'Forward'
+                  Button, 0x1064c9400, {{14.0, 1030.3}, {374.0, 70.3}}, label: 'Landing board, Who you follow has put one down best, as the simulator measured it.'
+                    Image, 0x1064c9520, {{30.0, 1045.0}, {16.0, 12.0}}, identifier: 'chart.bar.fill', label: 'Chart Column'
+                    StaticText, 0x1064c9640, {{58.0, 1042.3}, {95.3, 17.0}}, label: 'Landing board'
+                    StaticText, 0x1064c9760, {{58.0, 1063.3}, {239.0, 25.3}}, label: 'Who you follow has put one down best, as the simulator measured it.'
+                    Image, 0x1064c9880, {{367.7, 1060.7}, {5.7, 9.7}}, identifier: 'chevron.right', label: 'Forward'
+                  StaticText, 0x1064c99a0, {{16.0, 1114.7}, {83.3, 11.0}}, label: 'TELL ME WHEN'
+                  Button, 0x1064c9ac0, {{14.0, 1132.7}, {374.0, 70.3}}, label: 'Notifications, Not allowed yet, so nothing about these pilots can reach you.'
+                    Image, 0x1064c9be0, {{32.0, 1146.0}, {12.3, 14.3}}, identifier: 'bell.badge', label: 'bell.badge'
+                    StaticText, 0x1064c9d00, {{58.0, 1144.7}, {84.3, 17.0}}, label: 'Notifications'
+                    StaticText, 0x1064c9e20, {{58.0, 1165.7}, {260.7, 25.3}}, label: 'Not allowed yet, so nothing about these pilots can reach you.'
+                    Image, 0x1064c9f40, {{367.7, 1163.0}, {5.7, 9.7}}, identifier: 'chevron.right', label: 'Forward'
+                  StaticText, 0x1064ca060, {{17.3, 1217.0}, {323.7, 25.3}}, label: 'Hint: Add a pilot by their Infinite Flight display name, spelled the way it appears on the map.'
+                    Image, 0x1064ca180, {{17.3, 1219.0}, {7.7, 13.0}}, identifier: 'lightbulb', label: 'lightbulb'
+                    StaticText, 0x1064ca2a0, {{35.3, 1217.0}, {305.7, 25.3}}, label: 'Add a pilot by their Infinite Flight display name, spelled the way it appears on the map.'
+                  Button, 0x1064ca3c0, {{364.0, 1217.0}, {22.0, 22.0}}, identifier: 'xmark', label: 'Dismiss this hint'
+              Button, 0x1064ca4e0, {{18.0, 782.0}, {73.3, 48.0}}, label: 'Friends', Selected
+                Image, 0x1064ca600, {{42.7, 789.7}, {25.3, 17.0}}, identifier: 'person.2', label: 'person.2'
+                StaticText, 0x1064ca720, {{35.0, 812.2}, {39.3, 12.7}}, label: 'Friends'
+              Button, 0x1064ca840, {{91.3, 782.0}, {73.0, 48.0}}, label: 'ATC, 7 positions open'
+                Image, 0x1064ca960, {{116.3, 790.0}, {23.0, 16.0}}, identifier: 'dot.radiowaves.left.and.right', label: 'Radio'
+                StaticText, 0x1064caa80, {{137.8, 784.5}, {6.0, 11.0}}, label: '7'
+                StaticText, 0x1064caba0, {{117.3, 812.2}, {21.0, 12.7}}, label: 'ATC'
+              Button, 0x1064cacc0, {{164.3, 782.0}, {73.3, 48.0}}, label: 'Airports'
+                Image, 0x1064cade0, {{192.3, 787.7}, {17.3, 20.7}}, identifier: 'building.2', label: 'Business'
+                StaticText, 0x1064caf00, {{180.0, 812.2}, {42.0, 12.7}}, label: 'Airports'
+              Button, 0x1064cb020, {{237.7, 782.0}, {73.0, 48.0}}, label: 'Filters'
+                Image, 0x1064cb140, {{265.3, 790.7}, {18.0, 15.0}}, identifier: 'slider.horizontal.3', label: 'Edit'
+                StaticText, 0x1064cb260, {{258.0, 812.2}, {32.3, 12.7}}, label: 'Filters'
+              Button, 0x106261a40, {{310.7, 782.0}, {73.3, 48.0}}, label: 'Settings'
+                Image, 0x106260fe0, {{338.0, 788.7}, {19.0, 19.0}}, identifier: 'gearshape', label: 'gearshape'
+                StaticText, 0x106262830, {{325.8, 812.2}, {43.0, 12.7}}, label: 'Settings'
+Path to element:
+ →Application, 0x106498dd0, pid: 30030, label: 'Inflight'
+Query chain:
+ →Find: Target Application 'com.tracker.Inflight'
+  Output: {
+    Application, 0x1063832f0, pid: 30030, label: 'Inflight'
+  }
