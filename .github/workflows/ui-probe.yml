@@ -25,7 +25,7 @@ jobs:
         include:
           - name: dublin
             ref: ''
-            patch: fieldlog
+            patch: notraffic
 
     steps:
       - uses: actions/checkout@v4
@@ -47,7 +47,12 @@ jobs:
           python3 - <<'PY'
           import os, re
           kind = os.environ["PATCH"]
-          if kind == "fieldlog":
+          if kind == "notraffic":
+              p = "Map/TrackerMapView.swift"
+              s = open(p).read()
+              s = s.replace("        private func pushTraffic() {\n", "        private func pushTraffic() {\n            return;\n", 1)
+              open(p, "w").write(s)
+          elif kind == "fieldlog":
               p = "Map/TrackerMapView.swift"
               s = open(p).read()
               s = s.replace("            push(features, to: Source.fields)\n",
