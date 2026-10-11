@@ -1,0 +1,129 @@
+Attributes: Application, 0x105b81770, pid: 31484, label: 'Inflight'
+Element subtree:
+ →Application, 0x105b81770, pid: 31484, label: 'Inflight'
+    Window (Main), 0x105b9c250, {{0.0, 0.0}, {402.0, 874.0}}
+      Other, 0x105b9d630, {{0.0, 0.0}, {402.0, 874.0}}
+        Other, 0x105b86360, {{0.0, 0.0}, {402.0, 874.0}}
+          Other, 0x105b9d0f0, {{0.0, 0.0}, {402.0, 874.0}}
+            Other, 0x105b84000, {{0.0, 0.0}, {402.0, 874.0}}
+              Other, 0x105b86780, {{0.0, 0.0}, {402.0, 874.0}}
+                Other, 0x105b9ccd0, {{0.0, 0.0}, {402.0, 874.0}}
+                Other, 0x105b85f40, {{0.0, 0.0}, {402.0, 874.0}}
+                Button, 0x105b880e0, {{102.0, 390.0}, {44.0, 44.0}}, label: 'About this map'
+                Other, 0x105b88200, {{10.0, 413.0}, {85.0, 21.0}}
+              Button, 0x105b88320, {{344.0, 70.0}, {44.0, 44.0}}, label: 'Sign in'
+              Button, 0x105b88440, {{24.0, 440.0}, {354.0, 18.0}}, label: 'Expand'
+              StaticText, 0x105b88560, {{28.0, 460.0}, {80.0, 31.3}}, label: 'Filters'
+              StaticText, 0x105b88680, {{28.0, 494.3}, {155.0, 13.3}}, label: '4396 of 4396 aircraft shown'
+              ScrollView, 0x105b887a0, {{24.0, 521.7}, {354.0, 262.3}}
+                Other, 0x105b888c0, {{24.0, 521.7}, {354.0, 1019.3}}
+                  StaticText, 0x105b889e0, {{26.0, 521.7}, {37.3, 11.0}}, label: 'PHASE'
+                  Button, 0x105b88b00, {{24.0, 539.7}, {354.0, 42.0}}, label: 'Ground, 2,575', Selected
+                    Image, 0x105b88c20, {{41.7, 554.3}, {13.0, 13.0}}, identifier: 'airplane.circle', label: 'Airplane Mode'
+                    StaticText, 0x105b88d40, {{68.0, 552.2}, {49.3, 17.0}}, label: 'Ground'
+                    StaticText, 0x105b88e60, {{301.3, 554.0}, {34.0, 13.3}}, label: '2,575'
+                    Image, 0x105b88f80, {{346.7, 552.7}, {16.0, 16.0}}, identifier: 'checkmark.circle.fill', label: 'Selected', Selected
+                  Button, 0x105b890a0, {{24.0, 582.7}, {354.0, 42.0}}, label: 'Climb, 87', Selected
+                    Image, 0x105b891c0, {{41.7, 597.3}, {13.0, 13.0}}, identifier: 'arrow.up.right.circle', label: 'arrow.up.right.circle'
+                    StaticText, 0x105b892e0, {{68.0, 595.2}, {38.3, 17.0}}, label: 'Climb'
+                    StaticText, 0x105b89400, {{321.7, 597.0}, {13.7, 13.3}}, label: '87'
+                    Image, 0x105b89520, {{346.7, 595.7}, {16.0, 16.0}}, identifier: 'checkmark.circle.fill', label: 'Selected', Selected
+                  Button, 0x105b89640, {{24.0, 625.7}, {354.0, 42.0}}, label: 'Cruise, 1,615', Selected
+                    Image, 0x105b89760, {{41.7, 640.3}, {14.3, 13.0}}, identifier: 'airplane', label: 'Airplane Mode'
+                    StaticText, 0x105b89880, {{68.0, 638.2}, {42.7, 17.0}}, label: 'Cruise'
+                    StaticText, 0x105b899a0, {{301.3, 640.0}, {34.0, 13.3}}, label: '1,615'
+                    Image, 0x105b89ac0, {{346.7, 638.7}, {16.0, 16.0}}, identifier: 'checkmark.circle.fill', label: 'Selected', Selected
+                  Button, 0x105b89be0, {{24.0, 668.7}, {354.0, 42.0}}, label: 'Descent, 119', Selected
+                    Image, 0x105b89d00, {{41.7, 683.3}, {13.0, 13.0}}, identifier: 'arrow.down.right.circle', label: 'arrow.down.right.circle'
+                    StaticText, 0x105b89e20, {{68.0, 681.2}, {55.0, 17.0}}, label: 'Descent'
+                    StaticText, 0x105b89f40, {{314.7, 683.0}, {20.7, 13.3}}, label: '119'
+                    Image, 0x105b8a060, {{346.7, 681.7}, {16.0, 16.0}}, identifier: 'checkmark.circle.fill', label: 'Selected', Selected
+                  StaticText, 0x105b8a180, {{26.0, 724.7}, {56.0, 11.0}}, label: 'AIRCRAFT'
+                  Button, 0x105b8a2a0, {{24.0, 742.7}, {354.0, 42.0}}, label: 'Airliners, 4,088', Selected
+                    Image, 0x105b8a3c0, {{41.7, 757.3}, {14.3, 13.0}}, identifier: 'airplane', label: 'Airplane Mode'
+                    StaticText, 0x105b8a4e0, {{68.0, 755.2}, {54.7, 17.0}}, label: 'Airliners'
+                    StaticText, 0x105b8a600, {{301.3, 757.0}, {34.0, 13.3}}, label: '4,088'
+                    Image, 0x105b8a720, {{346.7, 755.7}, {16.0, 16.0}}, identifier: 'checkmark.circle.fill', label: 'Selected', Selected
+                  Button, 0x105b8a840, {{24.0, 785.7}, {354.0, 42.0}}, label: 'Regional, 96', Selected
+                    Image, 0x105b8a960, {{40.0, 801.0}, {16.7, 11.3}}, identifier: 'airplane.departure', label: 'airplane.departure'
+                    StaticText, 0x105b8aa80, {{68.0, 798.2}, {57.0, 17.0}}, label: 'Regional'
+                    StaticText, 0x105b8aba0, {{321.7, 800.0}, {13.7, 13.3}}, label: '96'
+                    Image, 0x105b8acc0, {{346.7, 798.7}, {16.0, 16.0}}, identifier: 'checkmark.circle.fill', label: 'Selected', Selected
+                  Button, 0x105b8ade0, {{24.0, 828.7}, {354.0, 42.0}}, label: 'Light & private, 158', Selected
+                    Image, 0x105b8af00, {{41.0, 843.0}, {13.3, 13.3}}, identifier: 'paperplane', label: 'Send'
+                    StaticText, 0x105b8b020, {{68.0, 841.2}, {96.7, 17.0}}, label: 'Light & private'
+                    StaticText, 0x105b8b140, {{314.7, 843.0}, {20.7, 13.3}}, label: '158'
+                    Image, 0x105b8b260, {{346.7, 841.7}, {16.0, 16.0}}, identifier: 'checkmark.circle.fill', label: 'Selected', Selected
+                  Button, 0x105b8b380, {{24.0, 871.7}, {354.0, 42.0}}, label: 'Military, 54', Selected
+                    Image, 0x105b8b4a0, {{42.7, 886.3}, {10.7, 13.0}}, identifier: 'shield', label: 'Shield'
+                    StaticText, 0x105b8b5c0, {{68.0, 884.2}, {49.3, 17.0}}, label: 'Military'
+                    StaticText, 0x105b8b6e0, {{321.7, 886.0}, {13.7, 13.3}}, label: '54'
+                    Image, 0x105b8b800, {{346.7, 884.7}, {16.0, 16.0}}, identifier: 'checkmark.circle.fill', label: 'Selected', Selected
+                  Button, 0x105b8b920, {{24.0, 914.7}, {354.0, 42.0}}, label: 'Helicopters, 0', Selected
+                    Image, 0x105b8ba40, {{41.7, 928.3}, {13.0, 15.0}}, identifier: 'fan.desk', label: 'fan.desk'
+                    StaticText, 0x105b8bb60, {{68.0, 927.2}, {76.3, 17.0}}, label: 'Helicopters'
+                    StaticText, 0x105b8bc80, {{328.3, 929.0}, {7.0, 13.3}}, label: '0'
+                    Image, 0x105b8bda0, {{346.7, 927.7}, {16.0, 16.0}}, identifier: 'checkmark.circle.fill', label: 'Selected', Selected
+                  StaticText, 0x105b8bec0, {{26.0, 970.7}, {54.7, 11.0}}, label: 'ALTITUDE'
+                  Button, 0x105b8bfe0, {{24.0, 988.7}, {354.0, 42.0}}, label: 'Below 2,500', Selected
+                    Image, 0x105b8c100, {{44.0, 1003.3}, {8.0, 12.7}}, identifier: 'arrow.up.and.down', label: 'arrow.up.and.down'
+                    StaticText, 0x105b8c220, {{68.0, 1001.2}, {82.7, 17.0}}, label: 'Below 2,500'
+                    Image, 0x105b8c340, {{346.7, 1001.7}, {16.0, 16.0}}, identifier: 'checkmark.circle.fill', label: 'Selected', Selected
+                  Button, 0x105b8c460, {{24.0, 1031.7}, {354.0, 42.0}}, label: '2,500 – 10,000', Selected
+                    Image, 0x105b8c580, {{44.0, 1046.3}, {8.0, 12.7}}, identifier: 'arrow.up.and.down', label: 'arrow.up.and.down'
+                    StaticText, 0x105b8c6a0, {{68.0, 1044.2}, {100.0, 17.0}}, label: '2,500 – 10,000'
+                    Image, 0x105b8c7c0, {{346.7, 1044.7}, {16.0, 16.0}}, identifier: 'checkmark.circle.fill', label: 'Selected', Selected
+                  Button, 0x105b8c8e0, {{24.0, 1074.7}, {354.0, 42.0}}, label: '10,000 – 18,000', Selected
+                    Image, 0x105b8ca00, {{44.0, 1089.3}, {8.0, 12.7}}, identifier: 'arrow.up.and.down', label: 'arrow.up.and.down'
+                    StaticText, 0x105b8cb20, {{68.0, 1087.2}, {107.0, 17.0}}, label: '10,000 – 18,000'
+                    Image, 0x105b8cc40, {{346.7, 1087.7}, {16.0, 16.0}}, identifier: 'checkmark.circle.fill', label: 'Selected', Selected
+                  Button, 0x105b8cd60, {{24.0, 1117.7}, {354.0, 42.0}}, label: '18,000 – 25,000', Selected
+                    Image, 0x105b8ce80, {{44.0, 1132.3}, {8.0, 12.7}}, identifier: 'arrow.up.and.down', label: 'arrow.up.and.down'
+                    StaticText, 0x105b8cfa0, {{68.0, 1130.2}, {108.7, 17.0}}, label: '18,000 – 25,000'
+                    Image, 0x105b8d0c0, {{346.7, 1130.7}, {16.0, 16.0}}, identifier: 'checkmark.circle.fill', label: 'Selected', Selected
+                  Button, 0x105b8d1e0, {{24.0, 1160.7}, {354.0, 42.0}}, label: '25,000 – 31,000', Selected
+                    Image, 0x105b8d300, {{44.0, 1175.3}, {8.0, 12.7}}, identifier: 'arrow.up.and.down', label: 'arrow.up.and.down'
+                    StaticText, 0x105b8d420, {{68.0, 1173.2}, {108.7, 17.0}}, label: '25,000 – 31,000'
+                    Image, 0x105b8d540, {{346.7, 1173.7}, {16.0, 16.0}}, identifier: 'checkmark.circle.fill', label: 'Selected', Selected
+                  Button, 0x105b8d660, {{24.0, 1203.7}, {354.0, 42.0}}, label: '31,000 – 37,000', Selected
+                    Image, 0x105b8d780, {{44.0, 1218.3}, {8.0, 12.7}}, identifier: 'arrow.up.and.down', label: 'arrow.up.and.down'
+                    StaticText, 0x105b8d8a0, {{68.0, 1216.2}, {107.3, 17.0}}, label: '31,000 – 37,000'
+                    Image, 0x105b8d9c0, {{346.7, 1216.7}, {16.0, 16.0}}, identifier: 'checkmark.circle.fill', label: 'Selected', Selected
+                  Button, 0x105b8dae0, {{24.0, 1246.7}, {354.0, 42.0}}, label: 'Above 37,000', Selected
+                    Image, 0x105b8dc00, {{44.0, 1261.3}, {8.0, 12.7}}, identifier: 'arrow.up.and.down', label: 'arrow.up.and.down'
+                    StaticText, 0x105b8dd20, {{68.0, 1259.2}, {91.3, 17.0}}, label: 'Above 37,000'
+                    Image, 0x105b8de40, {{346.7, 1259.7}, {16.0, 16.0}}, identifier: 'checkmark.circle.fill', label: 'Selected', Selected
+                  StaticText, 0x105b8df60, {{26.0, 1302.7}, {37.7, 11.0}}, label: 'ROUTE'
+                  Switch, 0x105b8e080, {{42.3, 1331.7}, {321.7, 28.0}}, label: 'Filed destination only', value: 0
+                    Image, 0x105b8e1a0, {{42.3, 1338.7}, {11.3, 14.0}}, identifier: 'point.topleft.down.to.point.bottomright.curvepath', label: 'point.topleft.down.to.point.bottomright.curvepath'
+                    StaticText, 0x105b8e2c0, {{68.0, 1337.2}, {141.0, 17.0}}, label: 'Filed destination only'
+                    Switch, 0x105b8e3e0, {{303.0, 1331.7}, {63.0, 28.0}}, value: 0
+                  StaticText, 0x105b8e500, {{68.0, 1364.7}, {285.0, 25.3}}, label: 'Hides aircraft with nothing filed — sightseeing, pattern work, and anything parked.'
+                  StaticText, 0x105b8e620, {{26.0, 1415.0}, {347.7, 50.3}}, label: 'Filters only change what is drawn. The feed is unchanged, so nothing has to be re-fetched when you turn one back on. What the map draws over the traffic — airports, tracks, routes, callsigns — is in Settings under Layers.'
+                  StaticText, 0x105b8e920, {{27.3, 1479.3}, {315.7, 37.7}}, label: 'Hint: The altitude colours here are the same ones the map paints a flown path in, so the filter and the track agree on what "low" means.'
+                    Image, 0x105b8ea40, {{27.3, 1481.3}, {7.7, 13.0}}, identifier: 'lightbulb', label: 'lightbulb'
+                    StaticText, 0x105b8eb60, {{45.3, 1479.3}, {297.7, 37.7}}, label: 'The altitude colours here are the same ones the map paints a flown path in, so the filter and the track agree on what "low" means.'
+                  Button, 0x105b8ec80, {{354.0, 1479.3}, {22.0, 22.0}}, identifier: 'xmark', label: 'Dismiss this hint'
+              Button, 0x105b8efa0, {{28.0, 798.0}, {69.3, 48.0}}, label: 'Friends'
+                Image, 0x105b8f0c0, {{50.3, 805.3}, {26.0, 17.7}}, identifier: 'person.2', label: 'person.2'
+                StaticText, 0x105b8f1e0, {{43.3, 828.2}, {38.7, 12.7}}, label: 'Friends'
+              Button, 0x105b8f300, {{97.3, 798.0}, {69.0, 48.0}}, label: 'ATC, 5 positions open'
+                Image, 0x105b8f420, {{120.3, 806.0}, {23.0, 16.0}}, identifier: 'dot.radiowaves.left.and.right', label: 'Radio'
+                StaticText, 0x105b8f540, {{141.7, 800.5}, {6.3, 11.0}}, label: '5'
+                StaticText, 0x105b8f660, {{121.3, 828.2}, {21.0, 12.7}}, label: 'ATC'
+              Button, 0x105b8f780, {{166.3, 798.0}, {69.3, 48.0}}, label: 'Airports'
+                Image, 0x105b8f8a0, {{192.3, 803.7}, {17.3, 20.7}}, identifier: 'building.2', label: 'Business'
+                StaticText, 0x105b8f9c0, {{180.0, 828.2}, {42.0, 12.7}}, label: 'Airports'
+              Button, 0x105b8fae0, {{235.7, 798.0}, {69.0, 48.0}}, label: 'Filters', Selected
+                Image, 0x105b8fc00, {{261.3, 806.7}, {18.0, 15.0}}, identifier: 'slider.horizontal.3', label: 'Edit'
+                StaticText, 0x105b8fd20, {{253.7, 828.2}, {33.0, 12.7}}, label: 'Filters'
+              Button, 0x105b8fe40, {{304.7, 798.0}, {69.3, 48.0}}, label: 'Settings'
+                Image, 0x105b8ff60, {{330.0, 804.7}, {19.0, 19.0}}, identifier: 'gearshape', label: 'gearshape'
+                StaticText, 0x105b90080, {{317.8, 828.2}, {43.0, 12.7}}, label: 'Settings'
+Path to element:
+ →Application, 0x105b81770, pid: 31484, label: 'Inflight'
+Query chain:
+ →Find: Target Application 'com.tracker.Inflight'
+  Output: {
+    Application, 0x107191bb0, pid: 31484, label: 'Inflight'
+  }

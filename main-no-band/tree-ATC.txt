@@ -1,0 +1,67 @@
+Attributes: Application, 0x107187010, pid: 31484, label: 'Inflight'
+Element subtree:
+ →Application, 0x107187010, pid: 31484, label: 'Inflight'
+    Window (Main), 0x107188160, {{0.0, 0.0}, {402.0, 874.0}}
+      Other, 0x107187a90, {{0.0, 0.0}, {402.0, 874.0}}
+        Other, 0x107187350, {{0.0, 0.0}, {402.0, 874.0}}
+          Other, 0x1071876f0, {{0.0, 0.0}, {402.0, 874.0}}
+            Other, 0x107186c60, {{0.0, 0.0}, {402.0, 874.0}}
+              Other, 0x107184960, {{0.0, 0.0}, {402.0, 874.0}}
+                Other, 0x107187e10, {{0.0, 0.0}, {402.0, 874.0}}
+                Other, 0x107181c90, {{0.0, 0.0}, {402.0, 874.0}}
+                Button, 0x107184610, {{102.0, 390.0}, {44.0, 44.0}}, label: 'About this map'
+                Other, 0x107184cc0, {{10.0, 413.0}, {85.0, 21.0}}
+              Button, 0x107188850, {{344.0, 70.0}, {44.0, 44.0}}, label: 'Sign in'
+              Button, 0x1071884d0, {{24.0, 440.0}, {354.0, 18.0}}, label: 'Expand'
+              StaticText, 0x107188bd0, {{28.0, 460.0}, {51.3, 31.3}}, label: 'ATC'
+              StaticText, 0x107188f20, {{28.0, 494.3}, {172.0, 13.3}}, label: '5 positions open · Expert Server'
+              ScrollView, 0x107189280, {{24.0, 521.7}, {354.0, 262.3}}
+                Other, 0x107189610, {{24.0, 521.7}, {354.0, 311.0}}
+                  StaticText, 0x107189980, {{26.0, 521.7}, {56.7, 11.0}}, label: 'AIRPORTS'
+                  Button, 0x107189ce0, {{24.0, 539.7}, {354.0, 128.3}}, label: 'VVNB, 🇻🇳, NOI BAI, ATIS, Exploser, GND, Exploser, TWR, Exploser'
+                    StaticText, 0x10718a020, {{38.0, 551.7}, {49.0, 20.3}}, label: 'VVNB'
+                    StaticText, 0x10718a390, {{95.0, 555.2}, {16.0, 13.3}}, label: '🇻🇳'
+                    StaticText, 0x10718a6e0, {{119.0, 556.3}, {38.3, 11.0}}, label: 'NOI BAI'
+                    Image, 0x10718aa30, {{357.7, 557.0}, {5.7, 9.7}}, identifier: 'chevron.right', label: 'Forward'
+                    StaticText, 0x10718ad80, {{45.0, 585.0}, {24.0, 11.0}}, label: 'ATIS'
+                    StaticText, 0x10718b0e0, {{85.0, 583.0}, {53.0, 15.0}}, label: 'Exploser'
+                    StaticText, 0x10718b440, {{45.5, 613.0}, {23.0, 11.0}}, label: 'GND'
+                    StaticText, 0x10718b7c0, {{85.0, 611.0}, {53.0, 15.0}}, label: 'Exploser'
+                    StaticText, 0x10718bb50, {{45.2, 641.0}, {23.7, 11.0}}, label: 'TWR'
+                    StaticText, 0x10718beb0, {{85.0, 639.0}, {53.0, 15.0}}, label: 'Exploser'
+                  Button, 0x10718c250, {{24.0, 669.0}, {354.0, 100.3}}, label: 'VVTS, 🇻🇳, TAN SON NHAT, ATIS, Sphinx, APP, Sphinx'
+                    StaticText, 0x10718c5a0, {{38.0, 681.0}, {47.0, 20.3}}, label: 'VVTS'
+                    StaticText, 0x10718c930, {{93.0, 684.5}, {16.0, 13.3}}, label: '🇻🇳'
+                    StaticText, 0x10718ccb0, {{117.0, 685.7}, {75.3, 11.0}}, label: 'TAN SON NHAT'
+                    Image, 0x10718d000, {{357.7, 686.3}, {5.7, 9.7}}, identifier: 'chevron.right', label: 'Forward'
+                    StaticText, 0x10718d3a0, {{45.0, 714.3}, {24.0, 11.0}}, label: 'ATIS'
+                    StaticText, 0x10718d720, {{85.0, 712.3}, {42.0, 15.0}}, label: 'Sphinx'
+                    StaticText, 0x10718da70, {{46.3, 742.3}, {21.3, 11.0}}, label: 'APP'
+                    StaticText, 0x10718ddd0, {{85.0, 740.3}, {42.0, 15.0}}, label: 'Sphinx'
+                  StaticText, 0x10718e150, {{27.3, 783.3}, {294.0, 25.3}}, label: 'Hint: Tap any field to open it: the same controllers, plus its weather and everything inbound.'
+                    Image, 0x10718e4b0, {{27.3, 785.3}, {7.7, 13.0}}, identifier: 'lightbulb', label: 'lightbulb'
+                    StaticText, 0x10718e800, {{45.3, 783.3}, {276.0, 25.3}}, label: 'Tap any field to open it: the same controllers, plus its weather and everything inbound.'
+                  Button, 0x10718eb60, {{354.0, 783.3}, {22.0, 22.0}}, identifier: 'xmark', label: 'Dismiss this hint'
+              Button, 0x10718eee0, {{28.0, 798.0}, {69.3, 48.0}}, label: 'Friends'
+                Image, 0x10718f260, {{50.3, 805.3}, {26.0, 17.7}}, identifier: 'person.2', label: 'person.2'
+                StaticText, 0x10718f5d0, {{43.3, 828.2}, {38.7, 12.7}}, label: 'Friends'
+              Button, 0x10718f940, {{97.3, 798.0}, {69.0, 48.0}}, label: 'ATC, 5 positions open', Selected
+                Image, 0x10718fca0, {{120.3, 806.0}, {23.0, 16.0}}, identifier: 'dot.radiowaves.left.and.right', label: 'Radio'
+                StaticText, 0x107190000, {{141.7, 800.5}, {6.3, 11.0}}, label: '5'
+                StaticText, 0x107190360, {{121.2, 828.2}, {21.3, 12.7}}, label: 'ATC'
+              Button, 0x1071906e0, {{166.3, 798.0}, {69.3, 48.0}}, label: 'Airports'
+                Image, 0x107190a60, {{192.3, 803.7}, {17.3, 20.7}}, identifier: 'building.2', label: 'Business'
+                StaticText, 0x107190df0, {{180.0, 828.2}, {42.0, 12.7}}, label: 'Airports'
+              Button, 0x107191140, {{235.7, 798.0}, {69.0, 48.0}}, label: 'Filters'
+                Image, 0x1071914d0, {{261.3, 806.7}, {18.0, 15.0}}, identifier: 'slider.horizontal.3', label: 'Edit'
+                StaticText, 0x107191840, {{254.0, 828.2}, {32.3, 12.7}}, label: 'Filters'
+              Button, 0x107191bb0, {{304.7, 798.0}, {69.3, 48.0}}, label: 'Settings'
+                Image, 0x107191ef0, {{330.0, 804.7}, {19.0, 19.0}}, identifier: 'gearshape', label: 'gearshape'
+                StaticText, 0x107192260, {{317.8, 828.2}, {43.0, 12.7}}, label: 'Settings'
+Path to element:
+ →Application, 0x107187010, pid: 31484, label: 'Inflight'
+Query chain:
+ →Find: Target Application 'com.tracker.Inflight'
+  Output: {
+    Application, 0x107170410, pid: 31484, label: 'Inflight'
+  }
