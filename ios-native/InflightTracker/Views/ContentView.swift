@@ -2071,7 +2071,9 @@ struct ContentView: View {
         // the bottom edge only when it is the centred one, and a dock running
         // under a column's foot is a dock half hidden. Gone while either
         // window is up, the same on both devices.
-        if selection == nil, airportPaneIcao == nil, airportDockIcao == nil {
+        // And not while the map's own window is up: it grew out of this
+        // island, and folds back into it when it closes.
+        if selection == nil, airportPaneIcao == nil, airportDockIcao == nil, !isShowingMapModes {
             GeometryReader { proxy in
                 VStack(spacing: 8) {
                     // One sheet, with the handle on it, the search field across

@@ -29,12 +29,15 @@ final class UIProbe: XCTestCase {
             burst("01-modes-open")
             sleep(2)
             shot("02-modes-open-done")
-            app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.15)).tap()
+            let close = app.buttons["Close"].firstMatch
+            log += "modes close \(close.exists)\n"
+            if close.exists { close.tap() }
             burst("03-modes-close")
             sleep(2)
             shot("04-modes-closed")
         }
 
+        try? log.write(to: out.appendingPathComponent("log.txt"), atomically: true, encoding: .utf8)
         let field = app.textFields.firstMatch
         log += "field exists \(field.exists)\n"
         if field.exists {
