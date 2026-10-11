@@ -1,0 +1,51 @@
+Attributes: Application, 0x103e677c0, pid: 23839, label: 'Inflight'
+Element subtree:
+ →Application, 0x103e677c0, pid: 23839, label: 'Inflight'
+    Window (Main), 0x103e572f0, {{0.0, 0.0}, {402.0, 874.0}}
+      Other, 0x103e70270, {{0.0, 0.0}, {402.0, 874.0}}
+        Other, 0x103e54270, {{0.0, 0.0}, {402.0, 874.0}}
+          Other, 0x103e6d560, {{0.0, 0.0}, {402.0, 874.0}}
+            Other, 0x103e4c920, {{0.0, 0.0}, {402.0, 874.0}}
+              Other, 0x103e6bc80, {{0.0, 0.0}, {402.0, 874.0}}
+                Other, 0x103e50a20, {{0.0, 0.0}, {402.0, 874.0}}
+                Other, 0x103e4b4f0, {{0.0, 0.0}, {402.0, 874.0}}
+                Button, 0x103e64bf0, {{102.0, 670.0}, {44.0, 44.0}}, label: 'About this map'
+                Other, 0x103e4af60, {{10.0, 693.0}, {85.0, 21.0}}
+              Button, 0x103e33c80, {{344.0, 70.0}, {44.0, 44.0}}, label: 'Sign in'
+              Button, 0x103e63c10, {{346.0, 474.0}, {40.0, 40.0}}, label: 'Weather'
+                Button, 0x103e306d0, {{346.0, 474.0}, {40.0, 40.0}}
+                  Image, 0x103e52120, {{346.0, 474.0}, {40.0, 40.0}}, identifier: 'cloud.fill', label: 'Mostly Cloudy'
+              Button, 0x103e633f0, {{346.0, 514.0}, {40.0, 40.0}}, identifier: 'circle.lefthalf.filled', label: 'Map style, flat, auto'
+              Button, 0x103e5c860, {{346.0, 554.0}, {40.0, 40.0}}, identifier: 'camera.viewfinder', label: 'Point the camera at the sky'
+              Button, 0x103e52740, {{346.0, 594.0}, {40.0, 40.0}}, identifier: 'ruler', label: 'Measure a distance'
+              Button, 0x103e52860, {{346.0, 634.0}, {40.0, 24.0}}, identifier: 'chevron.down', label: 'Hide map controls'
+              Button, 0x103e62ef0, {{346.0, 670.0}, {40.0, 40.0}}, label: 'Show 3D aircraft'
+              StaticText, 0x103e63010, {{23.3, 663.3}, {322.7, 37.7}}, label: 'Hint: Search finds callsigns, pilot names, registrations and ICAO codes — all of it from what is already on the device, so it answers as you type.'
+                Image, 0x103e74070, {{23.3, 665.3}, {7.7, 13.0}}, identifier: 'lightbulb', label: 'lightbulb'
+                StaticText, 0x103e74190, {{41.3, 663.3}, {304.7, 37.7}}, label: 'Search finds callsigns, pilot names, registrations and ICAO codes — all of it from what is already on the device, so it answers as you type.'
+              Button, 0x103e743e0, {{358.0, 663.3}, {22.0, 22.0}}, identifier: 'xmark', label: 'Dismiss this hint'
+              Button, 0x103e74500, {{24.0, 720.0}, {354.0, 18.0}}, label: 'Show more'
+              Image, 0x103e74620, {{41.7, 753.3}, {15.7, 15.7}}, identifier: 'magnifyingglass', label: 'Search'
+              TextField, 0x103e74740, {{68.0, 750.0}, {294.0, 22.0}}, placeholderValue: 'Search flights or airports'
+              Button, 0x103e74860, {{28.0, 798.0}, {69.3, 48.0}}, label: 'Friends'
+                Image, 0x103e74980, {{50.3, 805.3}, {26.0, 17.7}}, identifier: 'person.2', label: 'person.2'
+                StaticText, 0x103e74aa0, {{43.3, 828.2}, {38.7, 12.7}}, label: 'Friends'
+              Button, 0x103e74bc0, {{97.3, 798.0}, {69.0, 48.0}}, label: 'ATC'
+                Image, 0x103e74ce0, {{120.3, 806.0}, {23.0, 16.0}}, identifier: 'dot.radiowaves.left.and.right', label: 'Radio'
+                StaticText, 0x103e74e00, {{121.3, 828.2}, {21.0, 12.7}}, label: 'ATC'
+              Button, 0x103e74f20, {{166.3, 798.0}, {69.3, 48.0}}, label: 'Airports'
+                Image, 0x103e75040, {{192.3, 803.7}, {17.3, 20.7}}, identifier: 'building.2', label: 'Business'
+                StaticText, 0x103e75160, {{180.0, 828.2}, {42.0, 12.7}}, label: 'Airports'
+              Button, 0x103d7d150, {{235.7, 798.0}, {69.0, 48.0}}, label: 'Filters'
+                Image, 0x103d7cb10, {{261.3, 806.7}, {18.0, 15.0}}, identifier: 'slider.horizontal.3', label: 'Edit'
+                StaticText, 0x103d7c6f0, {{254.0, 828.2}, {32.3, 12.7}}, label: 'Filters'
+              Button, 0x103d7c2d0, {{304.7, 798.0}, {69.3, 48.0}}, label: 'Settings'
+                Image, 0x103d7beb0, {{330.0, 804.7}, {19.0, 19.0}}, identifier: 'gearshape', label: 'gearshape'
+                StaticText, 0x103d7b470, {{317.8, 828.2}, {43.0, 12.7}}, label: 'Settings'
+Path to element:
+ →Application, 0x103e677c0, pid: 23839, label: 'Inflight'
+Query chain:
+ →Find: Target Application 'com.tracker.Inflight'
+  Output: {
+    Application, 0x103e5bde0, pid: 23839, label: 'Inflight'
+  }
