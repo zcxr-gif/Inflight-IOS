@@ -1,0 +1,10 @@
+terms gate shown, agreeing
+Friends: exists hittable=true frame=(28.0, 798.0, 69.33333333333333, 48.0)
+ATC: exists hittable=true frame=(97.33333587646484, 798.0, 68.99999237060547, 48.0)
+Airports: exists hittable=true frame=(166.3333282470703, 798.0, 69.33334350585938, 48.0)
+Filters: exists hittable=true frame=(235.6666717529297, 798.0, 68.99998474121094, 48.0)
+Settings: exists hittable=true frame=(304.6666564941406, 798.0, 69.33334350585938, 48.0)
+Map style: exists hittable=true frame=(346.0, 514.0, 40.0, 40.0)
+Measure a distance: exists hittable=true frame=(346.0, 594.0, 40.0, 40.0)
+Point the camera at the sky: exists hittable=true frame=(346.0, 554.0, 40.0, 40.0)
+Show 3D aircraft: exists hittable=true frame=(346.0, 670.0, 40.0, 40.0)
