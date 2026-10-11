@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// Where the dock is resting.
 ///
@@ -73,7 +74,7 @@ struct MapDock: View {
     @Binding var detent: MapDockDetent
 
     /// The height the sheet can grow into: from the top of the safe area to the
-    /// foot of it, less the keyboard while one is up.
+    /// foot of the screen, or to the top of the keyboard while one is up.
     let room: CGFloat
 
     /// The screen's width. The sheet is held to it, so nothing inside can make
@@ -119,24 +120,48 @@ struct MapDock: View {
 
     // MARK: - Metrics
 
-    /// The radius along the sheet's top. The bottom is square — it runs off the
-    /// foot of the screen and the display rounds it. See `BottomEdge`.
-    static let cornerRadius: CGFloat = BottomEdge.cornerRadius
+    /// The gap the island keeps from the edges of the screen: both sides and
+    /// the foot. It floats, the way Safari's bar does, rather than standing on
+    /// the bottom edge — so it never touches the display's rounded corners.
+    static let islandMargin: CGFloat = 12
 
-    /// How far in from the sides of the screen everything in the dock sits.
-    static let cardInset: CGFloat = 14
+    /// How far in from the island's own edges everything inside it sits.
+    static let islandPadding: CGFloat = 12
+
+    /// All four corners. The bar's radius plus the padding it is held at, so
+    /// the bar's curve and the island's are concentric — and, at this margin,
+    /// near enough concentric with the display's own corners as well.
+    static let cornerRadius: CGFloat = MapToolbar.radius + islandPadding
 
     private static let cardTop: CGFloat = 2
-    private static let cardBottom: CGFloat = 6
     private static let rowGap: CGFloat = 10
 
     /// The band the grabber sits in.
     static let handleBand: CGFloat = 18
 
+    /// The collapsed island's own height. Added up from the parts so it cannot
+    /// drift.
+    static let islandHeight: CGFloat =
+        cardTop + handleBand + MapSearchField.fieldHeight + rowGap + MapToolbar.height + islandPadding
+
     /// How much of the map's bottom edge the collapsed dock covers, measured up
-    /// from the safe area. Added up from the parts so it cannot drift.
-    static let reservedHeight: CGFloat =
-        cardTop + handleBand + MapSearchField.fieldHeight + rowGap + MapToolbar.height + cardBottom
+    /// from the safe area, which is how the map and the corner controls ask.
+    ///
+    /// The island is laid out from the foot of the screen, not the safe area —
+    /// its lower edge stands down into the home indicator's band, as Safari's
+    /// does — so the band is taken back off here.
+    static var reservedHeight: CGFloat {
+        max(islandHeight + islandMargin - homeIndicatorBand, 0)
+    }
+
+    /// The band along the foot of the screen the home indicator sits in. Read
+    /// off the window rather than a view, because a view's safe area grows
+    /// with the keyboard and this must not.
+    static var homeIndicatorBand: CGFloat {
+        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        let scene = scenes.first { $0.activationState == .foregroundActive } ?? scenes.first
+        return scene?.keyWindow?.safeAreaInsets.bottom ?? 0
+    }
 
     /// Room left above the full sheet, under the status bar.
     private static let topGap: CGFloat = 6
@@ -148,12 +173,14 @@ struct MapDock: View {
     /// full, before the sheet comes down to half.
     private static let releaseOverscroll: CGFloat = 70
 
-    /// The height of the sheet at a stop, above the safe area's foot.
+    /// The island's height at a stop. `room` runs from the top of the safe
+    /// area to the foot of the screen, or to the top of the keyboard while
+    /// one is up; the island stands `islandMargin` above that foot.
     static func height(for detent: MapDockDetent, in room: CGFloat) -> CGFloat {
-        let full = max(room - topGap, reservedHeight)
+        let full = max(room - topGap - islandMargin, islandHeight)
         switch detent {
-        case .collapsed: return reservedHeight
-        case .half: return min(max(reservedHeight + 280, room * 0.5), full)
+        case .collapsed: return islandHeight
+        case .half: return min(max(islandHeight + 280, room * 0.5), full)
         case .full: return full
         }
     }
@@ -172,7 +199,7 @@ struct MapDock: View {
             let over = raw - fullHeight
             return fullHeight + over * Self.overshootLimit / (over + 60)
         }
-        return max(raw, Self.reservedHeight)
+        return max(raw, Self.islandHeight)
     }
 
     /// The bar stays on the foot of the sheet, except while the keyboard is up
@@ -181,7 +208,7 @@ struct MapDock: View {
 
     /// Everything in the sheet that is not the scrolling body.
     private var chromeHeight: CGFloat {
-        Self.cardTop + Self.handleBand + Self.cardBottom
+        Self.cardTop + Self.handleBand + Self.islandPadding
             + (panel == nil ? MapSearchField.fieldHeight : 0)
             + (showsToolbar ? Self.rowGap + MapToolbar.height : 0)
     }
@@ -250,21 +277,23 @@ struct MapDock: View {
                 .transition(.opacity.combined(with: .move(edge: .bottom)))
             }
         }
-        .padding(.horizontal, Self.cardInset)
+        .padding(.horizontal, Self.islandPadding)
         .padding(.top, Self.cardTop)
-        .padding(.bottom, Self.cardBottom)
-        .frame(width: width, height: liveHeight, alignment: .top)
+        .padding(.bottom, Self.islandPadding)
+        .frame(width: islandWidth, height: liveHeight, alignment: .top)
         .background {
-            // Down past the safe area and off the foot of the screen, so the
-            // sheet fills both bottom corners rather than hovering above them.
+            // An island with four rounded corners, clear of the screen's
+            // edges, rather than a sheet running off the foot of the display.
+            let shape = RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous)
             theme.sheetBackground
-                .clipShape(BottomEdge.shape)
+                .clipShape(shape)
                 .overlay {
-                    BottomEdge.shape.stroke(theme.stroke, lineWidth: 1)
+                    shape.stroke(theme.stroke, lineWidth: 1)
                 }
-                .shadow(color: .black.opacity(0.22), radius: 18, y: -2)
-                .ignoresSafeArea(edges: .bottom)
+                .shadow(color: .black.opacity(0.24), radius: 20, y: 6)
         }
+        .padding(.bottom, Self.islandMargin)
+        .frame(width: width)
         .motion(Motion.chrome, value: showsToolbar)
         .motion(Motion.chrome, value: panelKind)
         .motion(Motion.chrome, value: isSearching)
@@ -396,7 +425,9 @@ struct MapDock: View {
             }
     }
 
-    private var innerWidth: CGFloat { max(width - Self.cardInset * 2, 0) }
+    private var islandWidth: CGFloat { max(width - Self.islandMargin * 2, 0) }
+
+    private var innerWidth: CGFloat { max(islandWidth - Self.islandPadding * 2, 0) }
 
     /// What a docked panel's title band is handed to move the sheet with.
     private var host: DockPanelHost {

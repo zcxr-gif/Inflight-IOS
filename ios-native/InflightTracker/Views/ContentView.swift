@@ -1987,13 +1987,17 @@ struct ContentView: View {
                     )
                     .environmentObject(feed)
                 }
-                // Side to side and down to the foot of the screen: the dock
-                // stands on the bottom edge rather than floating above it.
+                // Down to the foot of the screen: the dock floats a margin
+                // clear of the edges, and that margin is measured from the
+                // display's edge, not the safe area's.
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
                 .onChange(of: proxy.size.height, initial: true) { _, height in
                     dockRoom = height
                 }
             }
+            // Into the home indicator's band, the way Safari's bar sits, but
+            // not under the keyboard.
+            .ignoresSafeArea(.container, edges: .bottom)
             // Not deaf to the keyboard: the sheet rides up on it while a query
             // is being typed, and its full height is what is left above it.
             .transition(.opacity.combined(with: .move(edge: .bottom)))
@@ -2136,7 +2140,7 @@ struct ContentView: View {
     /// the whole screen and they are behind it with everything else.
     private var dockLift: CGFloat {
         guard dockDetent != .collapsed, selection == nil, !replay.isActive else { return 0 }
-        return MapDock.height(for: .half, in: dockRoom) - MapDock.reservedHeight
+        return MapDock.height(for: .half, in: dockRoom) - MapDock.height(for: .collapsed, in: dockRoom)
     }
 
     /// Weather, at the top of the map's corner stack on the right.
