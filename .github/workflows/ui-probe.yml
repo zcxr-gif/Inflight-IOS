@@ -23,10 +23,15 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: after-164
-            ref: c5dac3be53295218185323f3c130d46060389321
-          - name: branch
-            ref: ''
+          - name: island-only
+            ref: 1f14fa5c32f1d3c3292f37c3241e9de795cd7baf
+            patch: ''
+          - name: main-no-band
+            ref: 38bd6f06c264155eeab00e25411b6c5be5c31a11
+            patch: band
+          - name: main-no-pill
+            ref: 38bd6f06c264155eeab00e25411b6c5be5c31a11
+            patch: pill
 
     steps:
       - uses: actions/checkout@v4
@@ -38,6 +43,32 @@ jobs:
           path: app
           ref: ${{ matrix.ref || github.sha }}
           fetch-depth: 0
+
+      - name: Apply the variant's patch
+        if: matrix.patch != ''
+        working-directory: app/ios-native/InflightTracker
+        env:
+          PATCH: ${{ matrix.patch }}
+        run: |
+          python3 - <<'PY'
+          import os, re
+          kind = os.environ["PATCH"]
+          if kind == "band":
+              p = "Views/MapDock.swift"
+              s = open(p).read()
+              start = s.index("    static var homeIndicatorBand: CGFloat {")
+              end = s.index("    }", s.index("return scene?.keyWindow", start)) + len("    }")
+              s = s[:start] + "    static var homeIndicatorBand: CGFloat { 34 }" + s[end:]
+              open(p, "w").write(s)
+          elif kind == "pill":
+              p = "Views/ContentView.swift"
+              s = open(p).read()
+              start = s.index("                AreaWeatherPillSlot(")
+              end = s.index(")", s.index("isExpanded: $isWeatherExpanded", start)) + 1
+              s = s[:start] + s[end:]
+              open(p, "w").write(s)
+          PY
+          git -C ../.. diff --stat
 
       - name: Pick the newest Xcode
         run: |
