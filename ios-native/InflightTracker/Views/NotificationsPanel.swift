@@ -71,9 +71,6 @@ struct NotificationsPanel: View {
             ownFlightSection.panelEntrance(2)
 
             watchlistSection.panelEntrance(3)
-
-            HintStrip(placement: .notifications)
-                .panelEntrance(4)
         }
         .onAppear {
             resolveSubject()

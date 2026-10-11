@@ -2000,14 +2000,6 @@ struct ContentView: View {
         if selection == nil, airportPaneIcao == nil {
             GeometryReader { proxy in
                 VStack(spacing: 8) {
-                    // Above the sheet rather than over the map proper: it is an
-                    // aside about the chrome it is sitting on. Only while the
-                    // sheet is down — pulled up, it is the sheet's screen.
-                    if !dockDetent.isRaised {
-                        HintStrip(placement: .map, isFloating: true)
-                            .padding(.horizontal, 10)
-                    }
-
                     // One sheet, with the handle on it, the search field across
                     // its top and the bar along its foot. Pulled up, the field
                     // rides to the top of the screen and the lists come up

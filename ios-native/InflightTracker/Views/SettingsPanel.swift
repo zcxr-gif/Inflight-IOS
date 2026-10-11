@@ -28,7 +28,6 @@ struct SettingsPanel: View {
     // Observed so the layers row says which of them are actually on rather
     // than only that there are layers.
     @ObservedObject private var filters = MapFilters.shared
-    @ObservedObject private var hints = HintsStore.shared
     @ObservedObject private var instruments = InstrumentPreferences.shared
     @ObservedObject private var accounts = AccountStore.shared
     @ObservedObject private var entitlements = Entitlements.shared
@@ -355,8 +354,7 @@ struct SettingsPanel: View {
     private var appearanceDetail: String {
         let mode = appearance.mode.label.lowercased()
         let palette = appearance.palette.label.lowercased()
-        let hint = hints.isEnabled ? "hints on" : "hints off"
-        return "\(mode), \(palette), \(hint)"
+        return "\(mode), \(palette)"
     }
 
     private var feedDetail: String {

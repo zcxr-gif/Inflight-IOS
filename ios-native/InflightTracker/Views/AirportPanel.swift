@@ -227,8 +227,6 @@ struct AirportPanel: View {
             diagram
 
             traffic(activity)
-
-            HintStrip(placement: .airport)
         }
         .onAppear {
             if let cached = WeatherService.shared.cached(airport.icao) {

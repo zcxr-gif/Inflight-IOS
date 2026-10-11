@@ -62,8 +62,6 @@ struct AtcPanel: View {
                     }
                 }
             }
-
-            HintStrip(placement: .atc)
         }
         .onReceive(clock) { now = $0 }
     }

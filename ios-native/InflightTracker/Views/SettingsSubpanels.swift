@@ -542,11 +542,10 @@ struct InstrumentsSettingsPanel: View {
 
 // MARK: - Appearance
 
-/// How the app itself is drawn, and whether it explains itself as you go.
+/// How the app itself is drawn.
 struct AppearanceSettingsPanel: View {
 
     @ObservedObject private var appearance = FlightInfoAppearance.shared
-    @ObservedObject private var hints = HintsStore.shared
 
     private var theme: FlightInfoTheme { appearance.theme }
 
@@ -599,46 +598,6 @@ struct AppearanceSettingsPanel: View {
                 )
             }
             .panelEntrance(2)
-
-            PanelSection(title: "HINTS") {
-                PanelToggleRow(
-                    title: "Show hints",
-                    symbol: "lightbulb",
-                    detail: "A line of guidance at the foot of a screen, about that screen. Each one retires after you have seen it a few times.",
-                    isOn: $hints.isEnabled
-                )
-
-                // Only offered once there is something to bring back, so the
-                // section is a switch and nothing else until it has earned the
-                // second row.
-                if hints.retiredCount > 0 {
-                    PanelDivider()
-
-                    Button {
-                        hints.restoreAll()
-                    } label: {
-                        HStack(spacing: 10) {
-                            PanelRowLabel(title: "Show them all again", symbol: "arrow.counterclockwise")
-
-                            Spacer(minLength: 8)
-
-                            Text(Lf("%@ read", String(hints.retiredCount)))
-                                .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                                .foregroundStyle(theme.textDim)
-                                .fixedSize()
-                        }
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 12)
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(!hints.isEnabled)
-                    .opacity(hints.isEnabled ? 1 : 0.45)
-                }
-            }
-            .motion(Motion.row, value: hints.retiredCount > 0)
-            .motion(Motion.control, value: hints.isEnabled)
-            .panelEntrance(3)
         }
     }
 }

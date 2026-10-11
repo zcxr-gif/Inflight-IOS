@@ -1266,8 +1266,6 @@ struct FlightDetailView: View {
     /// the type-checker has already given up on this file once.
     private var foot: some View {
         VStack(spacing: 12) {
-            HintStrip(placement: .flight)
-
             // Last of all, and only where it is true. See
             // `RealWorldAttribution`.
             if isRealWorld {
