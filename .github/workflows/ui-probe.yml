@@ -23,18 +23,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: pre-weather
-            ref: e3dbe84fc18fa6421145c9163d4d002898df3e08
-            patch: ''
-          - name: weather
-            ref: 1548158b1ce87c939b38fbb80806cb684827d7ae
-            patch: ''
-          - name: latest
+          - name: dublin
             ref: ''
             patch: ''
-          - name: latest-noprecip
-            ref: ''
-            patch: noprecip
 
     steps:
       - uses: actions/checkout@v4
@@ -139,7 +130,7 @@ jobs:
           grep -vE "com.apple|xctest|XCTQuery" /tmp/probe/app-log.txt | cut -c1-260 | head -120 || true
           for f in /tmp/probe/*.png; do
             n=$(basename "$f" .png)
-            sips -Z 700 -s format jpeg -s formatOptions 60 "$f" --out "/tmp/probe/$n.jpg" > /dev/null
+            sips -Z 1300 -s format jpeg -s formatOptions 70 "$f" --out "/tmp/probe/$n.jpg" > /dev/null
           done
 
       - name: Publish the results to a scratch branch
