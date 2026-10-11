@@ -593,7 +593,7 @@
 "Looking for Infinite Flight on this network…" = "Ищем Infinite Flight в этой сети…";
 "MATERIAL" = "МАТЕРИАЛ";
 "MOVEMENT" = "ДВИЖЕНИЕ";
-"Marks fields with somebody on frequency, and the busiest of the rest. Tap one to open it." = "Отмечает аэродромы с диспетчером на частоте и самые загруженные из остальных. Нажмите, чтобы открыть.";
+"Marks every field with traffic inbound in white, and in green where ATC is on frequency, once the map is zoomed in close. Tap one to open it." = "Отмечает белым каждый аэродром, куда летят самолёты, и зелёным — где на частоте работает диспетчер, когда карта приближена. Нажмите, чтобы открыть.";
 "Mint aeroplanes" = "Мятные самолёты";
 "Missing" = "Отсутствуют";
 "NAVIGATION DISPLAY" = "НАВИГАЦИОННЫЙ ДИСПЛЕЙ";

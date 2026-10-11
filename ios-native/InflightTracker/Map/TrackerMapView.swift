@@ -1744,8 +1744,12 @@ struct TrackerMapView: UIViewRepresentable {
             }
 
             // The reports behind the colours, for the fields being looked at
-            // and no others.
-            WeatherService.shared.prefetch(nearby)
+            // and no others — and only once the fields are drawn at all. Every
+            // field with traffic inbound is in this list, and over a whole
+            // continent "near the screen" would be hundreds of them.
+            if zoom >= MapLayerStyle.fieldMinZoom - 0.5 {
+                WeatherService.shared.prefetch(nearby)
+            }
 
             push(features, to: Source.fields)
         }

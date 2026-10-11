@@ -593,7 +593,7 @@
 "Looking for Infinite Flight on this network…" = "このネットワークで Infinite Flight を検索中…";
 "MATERIAL" = "質感";
 "MOVEMENT" = "動き";
-"Marks fields with somebody on frequency, and the busiest of the rest. Tap one to open it." = "管制官がいる空港と、それ以外で混雑している空港を表示します。タップすると開きます。";
+"Marks every field with traffic inbound in white, and in green where ATC is on frequency, once the map is zoomed in close. Tap one to open it." = "到着便がある空港を白で、ATCが周波数に就いている空港を緑で、地図を十分に拡大したときに表示します。タップすると開きます。";
 "Mint aeroplanes" = "ミント色の機体";
 "Missing" = "なし";
 "NAVIGATION DISPLAY" = "ナビゲーションディスプレイ";

@@ -84,8 +84,9 @@ final class PlaneSprites {
         static let outlinePacked = outline.packed
         static let selectedPacked = selected.packed
 
-        /// A field with someone working it, against one without.
-        static let controlledField = UIColor(red: 0.36, green: 0.68, blue: 1.00, alpha: 1)
+        /// A field with someone working it — green, for ATC on frequency —
+        /// against one with only traffic inbound, in white.
+        static let controlledField = UIColor(red: 0.22, green: 0.82, blue: 0.42, alpha: 1)
         static let field = UIColor(white: 0.97, alpha: 1)
     }
 

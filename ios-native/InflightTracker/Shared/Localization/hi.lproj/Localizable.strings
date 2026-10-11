@@ -593,7 +593,7 @@
 "Looking for Infinite Flight on this network…" = "इस नेटवर्क पर Infinite Flight खोजा जा रहा है…";
 "MATERIAL" = "सामग्री";
 "MOVEMENT" = "गति";
-"Marks fields with somebody on frequency, and the busiest of the rest. Tap one to open it." = "जिन हवाई अड्डों पर कोई फ़्रीक्वेंसी पर है और बाकी में सबसे व्यस्त, उन्हें चिह्नित करता है। खोलने के लिए टैप करें।";
+"Marks every field with traffic inbound in white, and in green where ATC is on frequency, once the map is zoomed in close. Tap one to open it." = "जिस हर हवाई अड्डे पर ट्रैफ़िक आ रहा है उसे सफ़ेद में, और जहाँ ATC फ़्रीक्वेंसी पर है उसे हरे में दिखाता है — जब नक़्शा पास तक ज़ूम हो। खोलने के लिए किसी पर टैप करें।";
 "Mint aeroplanes" = "पुदीना रंग के विमान";
 "Missing" = "अनुपलब्ध";
 "NAVIGATION DISPLAY" = "नेविगेशन डिस्प्ले";

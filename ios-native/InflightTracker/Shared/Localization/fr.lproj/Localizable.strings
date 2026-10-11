@@ -593,7 +593,7 @@
 "Looking for Infinite Flight on this network…" = "Recherche d'Infinite Flight sur ce réseau…";
 "MATERIAL" = "MATIÈRE";
 "MOVEMENT" = "MOUVEMENT";
-"Marks fields with somebody on frequency, and the busiest of the rest. Tap one to open it." = "Marque les terrains avec quelqu'un en fréquence, et les plus actifs des autres. Touchez-en un pour l'ouvrir.";
+"Marks every field with traffic inbound in white, and in green where ATC is on frequency, once the map is zoomed in close. Tap one to open it." = "Marque en blanc chaque terrain avec du trafic à l'arrivée, et en vert là où un contrôleur est en fréquence, une fois la carte zoomée de près. Touchez-en un pour l'ouvrir.";
 "Mint aeroplanes" = "Avions couleur menthe";
 "Missing" = "Manquants";
 "NAVIGATION DISPLAY" = "ÉCRAN DE NAVIGATION";

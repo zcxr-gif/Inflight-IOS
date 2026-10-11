@@ -215,11 +215,6 @@ struct ContentView: View {
     /// without anything here having to know that it should.
     private var highlighting: PilotHighlighting { PilotHighlighting.current() }
 
-    /// How many uncontrolled fields the map marks, on top of every field
-    /// somebody is working. Enough to show where the server actually is,
-    /// short of littering the map with places one aircraft filed through.
-    private static let busiestAirportsOnMap = 40
-
     /// Fields to mark. Empty when the toggle is off, which is the whole switch.
     ///
     /// Held in state and recounted once per packet rather than worked out in
@@ -241,11 +236,7 @@ struct ContentView: View {
 
     private func refreshMapAirports() {
         let fields = filters.showsAirports
-            ? MapAirport.active(
-                in: feed.flights,
-                stations: feed.atcStations,
-                busiestLimit: Self.busiestAirportsOnMap
-            )
+            ? MapAirport.active(in: feed.flights, stations: feed.atcStations)
             : []
 
         // `MapAirport` compares by what is drawn, so an unchanged ranking

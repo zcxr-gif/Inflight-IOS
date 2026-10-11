@@ -593,7 +593,7 @@
 "Looking for Infinite Flight on this network…" = "Looking for Infinite Flight on this network…";
 "MATERIAL" = "MATERIAL";
 "MOVEMENT" = "MOVEMENT";
-"Marks fields with somebody on frequency, and the busiest of the rest. Tap one to open it." = "Marks fields with somebody on frequency, and the busiest of the rest. Tap one to open it.";
+"Marks every field with traffic inbound in white, and in green where ATC is on frequency, once the map is zoomed in close. Tap one to open it." = "Marks every field with traffic inbound in white, and in green where ATC is on frequency, once the map is zoomed in close. Tap one to open it.";
 "Mint aeroplanes" = "Mint aeroplanes";
 "Missing" = "Missing";
 "NAVIGATION DISPLAY" = "NAVIGATION DISPLAY";

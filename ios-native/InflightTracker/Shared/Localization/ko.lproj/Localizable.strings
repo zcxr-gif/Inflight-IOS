@@ -593,7 +593,7 @@
 "Looking for Infinite Flight on this network…" = "이 네트워크에서 Infinite Flight 찾는 중…";
 "MATERIAL" = "재질";
 "MOVEMENT" = "움직임";
-"Marks fields with somebody on frequency, and the busiest of the rest. Tap one to open it." = "관제사가 있는 공항과 나머지 중 가장 붐비는 공항을 표시합니다. 탭하면 열립니다.";
+"Marks every field with traffic inbound in white, and in green where ATC is on frequency, once the map is zoomed in close. Tap one to open it." = "도착 교통이 있는 공항은 흰색으로, ATC가 주파수에 있는 공항은 초록색으로, 지도를 가까이 확대했을 때 표시합니다. 탭하면 열립니다.";
 "Mint aeroplanes" = "민트색 항공기";
 "Missing" = "없음";
 "NAVIGATION DISPLAY" = "항법 표시기";

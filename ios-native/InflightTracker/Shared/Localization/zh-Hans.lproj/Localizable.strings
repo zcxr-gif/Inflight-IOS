@@ -593,7 +593,7 @@
 "Looking for Infinite Flight on this network…" = "正在此网络中查找 Infinite Flight…";
 "MATERIAL" = "材质";
 "MOVEMENT" = "动态";
-"Marks fields with somebody on frequency, and the busiest of the rest. Tap one to open it." = "标记有人在线管制的机场，以及其余最繁忙的机场。轻点即可打开。";
+"Marks every field with traffic inbound in white, and in green where ATC is on frequency, once the map is zoomed in close. Tap one to open it." = "在地图放大到足够近时，用白色标出每个有进港航班的机场，有 ATC 在频率上的机场用绿色标出。点按即可打开。";
 "Mint aeroplanes" = "薄荷绿飞机";
 "Missing" = "缺失";
 "NAVIGATION DISPLAY" = "导航显示器";

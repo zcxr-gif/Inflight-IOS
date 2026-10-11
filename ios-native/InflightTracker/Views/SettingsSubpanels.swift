@@ -298,7 +298,7 @@ struct MapLayersSettingsPanel: View {
                 PanelToggleRow(
                     title: "Show airports",
                     symbol: "mappin.and.ellipse",
-                    detail: "Marks fields with somebody on frequency, and the busiest of the rest. Tap one to open it.",
+                    detail: "Marks every field with traffic inbound in white, and in green where ATC is on frequency, once the map is zoomed in close. Tap one to open it.",
                     isOn: $filters.showsAirports
                 )
 

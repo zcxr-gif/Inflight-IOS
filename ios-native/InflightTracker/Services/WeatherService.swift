@@ -44,8 +44,9 @@ final class WeatherService {
     /// Fetches reports for the fields the map is marking, so each can be drawn
     /// in its own flight category.
     ///
-    /// Bounded by what the map marks — every field being worked plus the
-    /// busiest few dozen. Cached fields are dropped here rather than by
+    /// Bounded by what the map marks — every field being worked or flown to,
+    /// and of those only the ones near the screen while the map is close
+    /// enough in to draw them. Cached fields are dropped here rather than by
     /// `metar(for:)`, which is the difference between a steady map doing no
     /// work and a steady map posting a hundred no-op completions to the main
     /// queue on every single redraw — sixty times a second while a replay is

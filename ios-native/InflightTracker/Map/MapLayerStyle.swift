@@ -114,6 +114,12 @@ enum MapLayerStyle {
     static let tappableTraffic = [Layer.selected, Layer.replay, Layer.traffic]
     static let tappableFields = [Layer.fields]
 
+    /// How close the map has to be before the fields are drawn at all: about
+    /// a country across. Every field with traffic inbound is a pin, and at a
+    /// continent's width those are hundreds of pins over the traffic they are
+    /// about. Close in, they are the few you are actually looking at.
+    static let fieldMinZoom: Double = 6
+
     // MARK: - Installing
 
     /// The font every label on the map is set in. Mapbox's own, served with
@@ -500,6 +506,7 @@ enum MapLayerStyle {
             },
             {
                 "id": "\(Layer.fields)", "type": "symbol", "source": "\(Source.fields)", "slot": "top",
+                "minzoom": \(fieldMinZoom),
                 "layout": {
                     "icon-image": ["get", "icon"],
                     "icon-anchor": "bottom",

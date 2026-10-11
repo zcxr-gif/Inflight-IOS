@@ -40,16 +40,18 @@ struct MapAirport: Identifiable, Equatable {
             && lhs.atcPositions == rhs.atcPositions
     }
 
-    /// Every controlled field, plus the busiest handful that nobody is working.
+    /// Every field with traffic inbound, and every field with somebody on
+    /// frequency — the white pins and the green ones.
     ///
-    /// Controlled fields are never dropped for being quiet — that is the whole
-    /// point of marking them — so the limit applies only to the traffic-ranked
-    /// tail. An ICAO the dataset has never heard of is skipped rather than
-    /// drawn at a guessed position.
+    /// No cap: a field somebody is flying to is a field worth finding, and the
+    /// map only draws them once it is close enough in for a few dozen to be on
+    /// screen at once (`MapLayerStyle.fieldMinZoom`). Fields with traffic only
+    /// departing are left off; the map is about where the aeroplanes are going.
+    /// An ICAO the dataset has never heard of is skipped rather than drawn at
+    /// a guessed position.
     static func active(
         in flights: [Flight],
-        stations: [AtcStation],
-        busiestLimit: Int
+        stations: [AtcStation]
     ) -> [MapAirport] {
         var inbound: [String: Int] = [:]
         var outbound: [String: Int] = [:]
@@ -72,28 +74,7 @@ struct MapAirport: Identifiable, Equatable {
             positions[icao, default: []].append(contentsOf: station.facilities.map { $0.kind.code })
         }
 
-        var wanted = Set(positions.keys)
-
-        // The traffic-ranked tail, taken from fields nobody is working — a
-        // controlled field is already in, and would otherwise use up a slot.
-        var ranked: [(icao: String, total: Int)] = []
-        var totals: [String: Int] = [:]
-        for (icao, count) in inbound where positions[icao] == nil {
-            totals[icao, default: 0] += count
-        }
-        for (icao, count) in outbound where positions[icao] == nil {
-            totals[icao, default: 0] += count
-        }
-        for (icao, total) in totals {
-            ranked.append((icao: icao, total: total))
-        }
-        ranked.sort { lhs, rhs in
-            lhs.total == rhs.total ? lhs.icao < rhs.icao : lhs.total > rhs.total
-        }
-
-        for entry in ranked.prefix(max(0, busiestLimit)) {
-            wanted.insert(entry.icao)
-        }
+        let wanted = Set(positions.keys).union(inbound.keys)
 
         var result: [MapAirport] = []
         result.reserveCapacity(wanted.count)
