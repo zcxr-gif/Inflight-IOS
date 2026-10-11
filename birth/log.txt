@@ -1,0 +1,5 @@
+style exists true
+modes close true
+field exists true
+hit true text true
+close true other false
