@@ -52,45 +52,23 @@ enum AirQuality {
     }
 }
 
-/// The index on its coloured scale, with a marker where the reading is.
-struct AirQualityBar: View {
-
-    let index: Int
-
-    private static let track: CGFloat = 6
-    private static let marker: CGFloat = 12
-
-    var body: some View {
-        GeometryReader { geometry in
-            let travel = max(geometry.size.width - Self.marker, 0)
-            ZStack(alignment: .leading) {
-                Capsule()
-                    .fill(LinearGradient(colors: AirQuality.colours, startPoint: .leading, endPoint: .trailing))
-                    .frame(height: Self.track)
-
-                Circle()
-                    .fill(.white)
-                    .overlay { Circle().stroke(.black.opacity(0.35), lineWidth: 1.5) }
-                    .frame(width: Self.marker, height: Self.marker)
-                    .offset(x: travel * AirQuality.position(index))
-            }
-            .frame(maxHeight: .infinity)
-        }
-        .frame(height: Self.marker)
-        .accessibilityHidden(true)
-    }
-}
-
 // MARK: - The card
 
-/// A place's weather as one card, the way Maps opens its weather pill: the
-/// conditions and the temperature, today's high and low, the air quality, and
-/// the next few hours.
+/// A place's weather as one card: the sky and the temperature, the handful of
+/// readings worth a glance, and the next few hours.
 ///
-/// Used for the map's own pill and for the flight window's chip, so the two
-/// open into the same thing. What goes in the headline is the caller's — a
-/// field's filed report wins over the model where there is one — and the
-/// forecast fills in the rest.
+/// Set the way the rest of the app writes weather rather than the way the
+/// system's Weather app does — the small tracked labels and rounded figures of
+/// the flight window's forecast section, readings in a row of columns rather
+/// than "H: L:" prose, and the air quality as a figure with its colour beside
+/// it rather than a gradient slider. It is the same information the forecast
+/// section carries, at a glance's length, so opening the full section reads as
+/// more of this card rather than as a different app.
+///
+/// Used for the map's own pill, the flight window's chip and the flight
+/// window's own weather row, so all three open into the same thing. What goes
+/// in the headline is the caller's — a field's filed report wins over the
+/// model where there is one — and the forecast fills in the rest.
 struct WeatherCard<Footer: View>: View {
 
     let theme: FlightInfoTheme
@@ -105,6 +83,10 @@ struct WeatherCard<Footer: View>: View {
     let isModelled: Bool
     let snapshot: ForecastService.Snapshot?
     let isLoading: Bool
+    /// Drawn on a panel's surface rather than floating over the map as glass:
+    /// the flight window's own row, where the card sits among the window's
+    /// other sections and a pane of glass would be a hole in it.
+    var isInset: Bool = false
     let footer: Footer
 
     @ObservedObject private var preferences = WeatherPreferences.shared
@@ -119,6 +101,7 @@ struct WeatherCard<Footer: View>: View {
         isModelled: Bool,
         snapshot: ForecastService.Snapshot?,
         isLoading: Bool = false,
+        isInset: Bool = false,
         @ViewBuilder footer: () -> Footer
     ) {
         self.theme = theme
@@ -130,151 +113,185 @@ struct WeatherCard<Footer: View>: View {
         self.isModelled = isModelled
         self.snapshot = snapshot
         self.isLoading = isLoading
+        self.isInset = isInset
         self.footer = footer()
     }
 
-    private static var hourCount: Int { 4 }
+    /// Hours after now, beside it. Six fit a phone's width at these sizes
+    /// without the strip having to scroll.
+    private static var hourCount: Int { 5 }
 
     var body: some View {
-        VStack(spacing: 0) {
+        let card = VStack(spacing: 0) {
             header
-                .padding(.horizontal, 18)
-                .padding(.top, 16)
-                .padding(.bottom, 14)
+                .padding(.horizontal, 14)
+                .padding(.top, 13)
+                .padding(.bottom, 12)
 
-            if let index = snapshot?.airQualityIndex {
-                divider
-                airQuality(index)
-                    .padding(.horizontal, 18)
-                    .padding(.vertical, 12)
+            if let snapshot {
+                PanelDivider()
+                readings(snapshot)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 11)
             }
 
             if let snapshot, !upcoming(in: snapshot).isEmpty {
-                divider
+                PanelDivider()
                 hourly(snapshot)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 12)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 11)
             } else if isLoading {
-                divider
+                PanelDivider()
                 ProgressView()
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 18)
+                    .padding(.vertical, 16)
             }
 
             footer
 
             if snapshot != nil {
-                divider
+                PanelDivider()
                 ForecastSourceRow()
             }
         }
         .frame(maxWidth: 440)
-        .flightInfoChrome(theme, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
-        .environment(\.colorScheme, theme.colorScheme)
-    }
 
-    private var divider: some View {
-        Rectangle()
-            .fill(theme.stroke)
-            .frame(height: 1)
-            .padding(.horizontal, 18)
+        if isInset {
+            card.flightInfoSurface(theme, radius: theme.radiusMedium)
+        } else {
+            card
+                .flightInfoChrome(theme, in: RoundedRectangle(cornerRadius: theme.radiusLarge, style: .continuous))
+                .environment(\.colorScheme, theme.colorScheme)
+        }
     }
 
     // MARK: - Headline
 
     private var header: some View {
-        HStack(alignment: .top, spacing: 12) {
-            Image(systemName: symbolName)
-                .symbolRenderingMode(.hierarchical)
-                .font(.system(size: 34))
-                .foregroundStyle(theme.textPrimary)
-                .frame(width: 46)
-                .padding(.top, 4)
+        VStack(alignment: .leading, spacing: 9) {
+            HStack(spacing: 6) {
+                Text(L("WEATHER"))
+                    .font(.system(size: 9, weight: .bold))
+                    .tracking(1)
+                    .foregroundStyle(theme.textDim)
 
-            VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 6) {
+                if let badge {
+                    Text(L(badge))
+                        .font(.system(size: 9.5, weight: .heavy))
+                        .tracking(0.6)
+                        .foregroundStyle(theme.textSecondary)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 2)
+                        .background { Capsule().stroke(theme.stroke, lineWidth: 1) }
+                }
+
+                if isModelled {
+                    ForecastSourceMark(colour: theme.textDim)
+                }
+
+                Spacer(minLength: 0)
+            }
+
+            HStack(alignment: .center, spacing: 12) {
+                Image(systemName: symbolName)
+                    .symbolRenderingMode(.hierarchical)
+                    .font(.system(size: 26, weight: .semibold))
+                    .foregroundStyle(theme.accent)
+                    .frame(width: 38, height: 38)
+                    .background {
+                        RoundedRectangle(cornerRadius: theme.radiusSmall, style: .continuous)
+                            .fill(theme.accent.opacity(0.14))
+                    }
+
+                VStack(alignment: .leading, spacing: 2) {
                     Text(L(title))
-                        .font(.system(size: 19, weight: .semibold))
+                        .font(.system(size: 15, weight: .semibold))
                         .foregroundStyle(theme.textPrimary)
                         .lineLimit(1)
                         .minimumScaleFactor(0.75)
 
-                    if let badge {
-                        Text(L(badge))
-                            .font(.system(size: 11, weight: .bold))
-                            .foregroundStyle(theme.textSecondary)
-                    }
-
-                    if isModelled {
-                        ForecastSourceMark(colour: theme.textDim)
-                    }
-                }
-
-                Text(L(condition))
-                    .font(.system(size: 15))
-                    .foregroundStyle(theme.textSecondary)
-                    .lineLimit(1)
-
-                if let chance = snapshot?.today?.precipitationChance {
-                    Text(Lf("Chance of Rain: %@", "\(Int((chance * 100).rounded()))%"))
-                        .font(.system(size: 15))
+                    Text(L(condition))
+                        .font(.system(size: 12, weight: .medium))
                         .foregroundStyle(theme.textSecondary)
                         .lineLimit(1)
                         .minimumScaleFactor(0.8)
                 }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
 
-            VStack(alignment: .trailing, spacing: 0) {
                 Text(L(degrees(temperatureC)))
-                    .font(.system(size: 50, weight: .thin))
+                    .font(.system(size: 32, weight: .bold, design: .rounded))
+                    .monospacedDigit()
                     .foregroundStyle(theme.textPrimary)
                     .fixedSize()
                     .motionWords(degrees(temperatureC))
-
-                if let today = snapshot?.today {
-                    Text(Lf("H:%@ L:%@", degrees(today.highC), degrees(today.lowC)))
-                        .font(.system(size: 15))
-                        .foregroundStyle(theme.textPrimary)
-                        .fixedSize()
-                }
             }
         }
     }
 
-    // MARK: - Air quality
+    // MARK: - Readings
 
-    private func airQuality(_ index: Int) -> some View {
-        HStack(spacing: 12) {
-            HStack(spacing: 8) {
-                Text(L("AQI"))
-                    .font(.system(size: 15, weight: .bold))
-                Text(L("\(index)"))
-                    .font(.system(size: 15))
-            }
-            .foregroundStyle(theme.textPrimary)
-            .fixedSize()
-
-            AirQualityBar(index: index)
-
-            // The short names as they are; the long ones wrap rather than
-            // squeezing the bar to nothing.
-            if AirQuality.label(index).count <= 10 {
-                Text(L(AirQuality.label(index)))
-                    .font(.system(size: 15))
-                    .foregroundStyle(theme.textPrimary)
-                    .fixedSize()
+    /// The few numbers worth a glance, in the forecast section's own columns:
+    /// the day's range, the wind, the chance of rain and the air.
+    private func readings(_ snapshot: ForecastService.Snapshot) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            if let today = snapshot.today {
+                reading("High / low", "\(degrees(today.highC)) \(degrees(today.lowC))")
             } else {
-                Text(L(AirQuality.label(index)))
-                    .font(.system(size: 13))
-                    .foregroundStyle(theme.textPrimary)
-                    .lineLimit(2)
-                    .multilineTextAlignment(.trailing)
-                    .frame(width: 110, alignment: .trailing)
+                reading("Feels like", degrees(snapshot.apparentTemperatureC))
+            }
+
+            reading("Wind", wind(snapshot), detail: preferences.windUnit.label)
+
+            if let chance = snapshot.today?.precipitationChance {
+                reading("Rain", "\(Int((chance * 100).rounded()))%")
+            } else {
+                reading("Humidity", "\(Int((snapshot.humidity * 100).rounded()))%")
+            }
+
+            if let index = snapshot.airQualityIndex {
+                reading("Air", "\(index)", dot: AirQuality.colour(index))
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(L("Air quality index \(index), \(AirQuality.label(index))"))
+            } else {
+                reading("Feels like", degrees(snapshot.apparentTemperatureC))
             }
         }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(L("Air quality index \(index), \(AirQuality.label(index))"))
+    }
+
+    private func reading(
+        _ title: String,
+        _ value: String,
+        detail: String? = nil,
+        dot: Color? = nil
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(L(title.uppercased()))
+                .font(.system(size: 8.5, weight: .bold))
+                .tracking(0.6)
+                .foregroundStyle(theme.textDim)
+                .flightInfoLine(minimumScale: 0.8)
+
+            HStack(alignment: .firstTextBaseline, spacing: 4) {
+                if let dot {
+                    Circle()
+                        .fill(dot)
+                        .frame(width: 7, height: 7)
+                }
+
+                Text(L(value))
+                    .font(.system(size: 13, weight: .semibold, design: .rounded))
+                    .monospacedDigit()
+                    .foregroundStyle(theme.textPrimary)
+
+                if let detail {
+                    Text(L(detail))
+                        .font(.system(size: 8.5, weight: .bold))
+                        .foregroundStyle(theme.textDim)
+                }
+            }
+            .flightInfoLine(minimumScale: 0.7)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     // MARK: - The next few hours
@@ -284,6 +301,7 @@ struct WeatherCard<Footer: View>: View {
         let label: String
         let symbolName: String
         let temperatureC: Double?
+        let precipitationChance: Double
         let isNow: Bool
     }
 
@@ -294,16 +312,17 @@ struct WeatherCard<Footer: View>: View {
 
     private func slots(_ snapshot: ForecastService.Snapshot) -> [Slot] {
         // In the place's own hours, the way somebody standing there would read
-        // them — the same as the forecast section does.
+        // them, and on the forecast section's 24-hour clock.
         let formatter = DateFormatter()
         formatter.timeZone = snapshot.timeZone
-        formatter.setLocalizedDateFormatFromTemplate("j")
+        formatter.dateFormat = "HH"
 
         let now = Slot(
             id: 0,
-            label: "Now",
+            label: "NOW",
             symbolName: symbolName,
             temperatureC: temperatureC ?? snapshot.temperatureC,
+            precipitationChance: 0,
             isNow: true
         )
         let later = upcoming(in: snapshot).enumerated().map { offset, hour in
@@ -312,6 +331,7 @@ struct WeatherCard<Footer: View>: View {
                 label: formatter.string(from: hour.date),
                 symbolName: hour.symbolName,
                 temperatureC: hour.temperatureC,
+                precipitationChance: hour.precipitationChance,
                 isNow: false
             )
         }
@@ -319,24 +339,32 @@ struct WeatherCard<Footer: View>: View {
     }
 
     private func hourly(_ snapshot: ForecastService.Snapshot) -> some View {
-        HStack(spacing: 0) {
+        HStack(alignment: .top, spacing: 0) {
             ForEach(slots(snapshot)) { slot in
-                VStack(spacing: 10) {
+                VStack(spacing: 5) {
                     Text(L(slot.label))
-                        .font(.system(size: 15, weight: slot.isNow ? .semibold : .regular))
-                        .foregroundStyle(slot.isNow ? theme.textPrimary : theme.textSecondary)
+                        .font(.system(size: 10, weight: .bold, design: .monospaced))
+                        .foregroundStyle(slot.isNow ? theme.accent : theme.textDim)
                         .lineLimit(1)
-                        .minimumScaleFactor(0.7)
 
                     Image(systemName: slot.symbolName)
                         .symbolRenderingMode(.hierarchical)
-                        .font(.system(size: 20))
+                        .font(.system(size: 16))
                         .foregroundStyle(theme.textPrimary)
-                        .frame(height: 24)
+                        .frame(height: 20)
 
                     Text(L(degrees(slot.temperatureC)))
-                        .font(.system(size: 16, weight: slot.isNow ? .semibold : .regular))
+                        .font(.system(size: 12, weight: .semibold, design: .rounded))
+                        .monospacedDigit()
                         .foregroundStyle(theme.textPrimary)
+
+                    // Only where there is something to say, the same as the
+                    // forecast section's strip.
+                    Text(L(slot.precipitationChance >= 0.1
+                         ? "\(Int((slot.precipitationChance * 100).rounded()))%"
+                         : " "))
+                        .font(.system(size: 9.5, weight: .semibold))
+                        .foregroundStyle(theme.accent)
                 }
                 .frame(maxWidth: .infinity)
             }
@@ -348,6 +376,17 @@ struct WeatherCard<Footer: View>: View {
     private func degrees(_ celsius: Double?) -> String {
         guard let celsius else { return "—" }
         return "\(Int(preferences.temperatureUnit.convert(fromCelsius: celsius).rounded()))°"
+    }
+
+    /// `240° 12`, or with the gust where there is one: `240° 12G20`. The unit
+    /// is the reading's detail, beside it.
+    private func wind(_ snapshot: ForecastService.Snapshot) -> String {
+        let unit = preferences.windUnit
+        let mean = Int(unit.convert(fromKnots: snapshot.windSpeedKnots).rounded())
+        let direction = String(format: "%03.0f°", snapshot.windDirectionDegrees)
+        guard let gust = snapshot.windGustKnots else { return "\(direction) \(mean)" }
+        let gusting = Int(unit.convert(fromKnots: gust).rounded())
+        return gusting > mean + 2 ? "\(direction) \(mean)G\(gusting)" : "\(direction) \(mean)"
     }
 }
 
@@ -361,7 +400,8 @@ extension WeatherCard where Footer == EmptyView {
         temperatureC: Double?,
         isModelled: Bool,
         snapshot: ForecastService.Snapshot?,
-        isLoading: Bool = false
+        isLoading: Bool = false,
+        isInset: Bool = false
     ) {
         self.init(
             theme: theme,
@@ -373,6 +413,7 @@ extension WeatherCard where Footer == EmptyView {
             isModelled: isModelled,
             snapshot: snapshot,
             isLoading: isLoading,
+            isInset: isInset,
             footer: { EmptyView() }
         )
     }

@@ -208,7 +208,14 @@ struct FlightWindowDock<Content: View>: View {
 
                 withAnimation(Motion.chrome) {
                     if isExpanded {
-                        if landing > FlightWindowDockMetrics.stepTravel { isExpanded = false }
+                        // The distance pulled counts as well as where the flick
+                        // would land. On the landing alone a slow, deliberate
+                        // pull — which predicts barely past where it was let
+                        // go — sprang the window back up to full.
+                        if landing > FlightWindowDockMetrics.stepTravel
+                            || travelled > FlightWindowDockMetrics.stepTravel {
+                            isExpanded = false
+                        }
                     } else if landing < -FlightWindowDockMetrics.stepTravel {
                         isExpanded = true
                     } else if travelled > FlightWindowDockMetrics.closeTravel || landing > FlightWindowDockMetrics.closeTravel * 1.6 {

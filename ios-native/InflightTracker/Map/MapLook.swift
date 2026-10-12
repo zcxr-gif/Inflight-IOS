@@ -385,8 +385,14 @@ struct MapLook: Equatable {
     ///
     /// Terrain you cannot lean over is terrain you cannot see: the whole of the
     /// difference between a flat map and an elevated one is visible only from
-    /// an angle.
-    var isPitchEnabled: Bool { isFreeCamera || isTerrain }
+    /// an angle. Buildings are the same — from straight above an extruded city
+    /// is the flat one with its roofs a shade lighter.
+    var isPitchEnabled: Bool { isFreeCamera || isTerrain || showsBuildings }
+
+    /// Whether buildings actually stand up on this map. Only the cartography
+    /// has them: neither imagery style draws extrusions, so the switch is
+    /// asked for and simply has nothing to draw there.
+    var showsBuildings: Bool { stylesheet == .standard && custom.shows3DBuildings }
 
     /// The Mapbox style for this look.
     ///
@@ -401,10 +407,11 @@ struct MapLook: Equatable {
     ///
     /// Points of interest stay off everywhere: the map is a backdrop for
     /// traffic, and a scattering of restaurant pins competes with the aircraft
-    /// for exactly the same attention. So do the 3D buildings and trees — the
-    /// traffic is the only thing on this map that should be standing up, and
-    /// not drawing a city's worth of extrusions is a good share of what keeps a
-    /// pinch at the display's full frame rate.
+    /// for exactly the same attention. The 3D buildings and trees stay off
+    /// too unless the customisation asks for them — the traffic is the only
+    /// thing on this map that should be standing up by default, and not drawing
+    /// a city's worth of extrusions is a good share of what keeps a pinch at
+    /// the display's full frame rate.
     func mapStyle(isLight: Bool) -> MapStyle {
         switch stylesheet {
         case .rasterSatellite:

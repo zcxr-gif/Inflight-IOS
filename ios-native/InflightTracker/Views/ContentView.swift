@@ -1034,6 +1034,23 @@ struct ContentView: View {
         }
     }
 
+    /// The flight window's chip, opened. A tap on it puts it away again.
+    private var stationWeatherCard: some View {
+        StationWeatherCard(model: weather, theme: theme)
+            .contentShape(Rectangle())
+            .onTapGesture {
+                withAnimation(Motion.control) { isWeatherExpanded = false }
+            }
+    }
+
+    /// How tall the chip's card may be: from under the top row to a little
+    /// above whatever the window is standing on the bottom of the map.
+    private var weatherCardRoom: CGFloat {
+        let topRow: CGFloat = 8 + 44 + 10
+        let gap: CGFloat = 12
+        return max(mapAreaSize.height - topRow - flightWindowBottomInset - gap, 120)
+    }
+
     /// Whether the map's own weather pill may come up: switched on, over the
     /// flat map — the planet reports no settle to read a place from — and with
     /// nothing open, where the flight window's chip stands instead.
@@ -1067,11 +1084,16 @@ struct ContentView: View {
                             isExpanded: $isWeatherExpanded
                         )
                     } else if weatherPreferences.isChipVisible {
-                        StationWeatherCard(model: weather, theme: theme)
-                            .contentShape(Rectangle())
-                            .onTapGesture {
-                                withAnimation(Motion.control) { isWeatherExpanded = false }
-                            }
+                        // Held to the map left above the window. The card used
+                        // to drop to its full height whatever was under it, and
+                        // with the window at its peak its lower half ran on
+                        // behind it. Whole where it fits; scrolling in the room
+                        // there is where it does not.
+                        ViewThatFits(in: .vertical) {
+                            stationWeatherCard
+                            ScrollView(showsIndicators: false) { stationWeatherCard }
+                        }
+                        .frame(maxHeight: weatherCardRoom, alignment: .top)
                     }
                 }
                 .transition(.opacity.combined(with: .scale(scale: 0.92, anchor: .topLeading)))
@@ -1141,11 +1163,17 @@ struct ContentView: View {
                 mapToolbar
             }
             replayBar
-            flightDock
-            airportDock
-            flightPane
-            airportPane
-            mapModes
+            // Raised explicitly, all of them. A ZStack draws a view that is on
+            // its way out at its default level, which put a closing window
+            // behind the map: it was folding back into the bar exactly as it
+            // should, out of sight, and what you saw was the window vanish on
+            // the tap. Opening never showed it, because a view coming in keeps
+            // its place in the stack.
+            flightDock.zIndex(1)
+            airportDock.zIndex(1)
+            flightPane.zIndex(1)
+            airportPane.zIndex(1)
+            mapModes.zIndex(2)
         }
         // What the panes are laid out in, so the map can be told exactly how
         // much of it they cover. See `mapAreaSize`.
@@ -1218,7 +1246,7 @@ struct ContentView: View {
                 // is the only one that stays neutral.
                 theme: appearance.windowTheme.accented(by: airlineAccent(forFlightId: selected.id)),
                 placement: flightPlacement,
-                onClose: { sheet = nil }
+                onClose: closeWindow
             ) {
                 FlightDetailView(
                     flightId: selected.id,
@@ -1227,7 +1255,8 @@ struct ContentView: View {
                     presentation: .pane,
                     onReplay: { track in startReplay(of: selected.id, track: track) },
                     onSelectAirport: { field in openAirport(field, from: selected) },
-                    origin: flightReturn(for: selected)
+                    origin: flightReturn(for: selected),
+                    weather: weather
                 )
                     // Same as the sheet's: a different aircraft resets the
                     // window's own state without the window going anywhere.
@@ -1253,7 +1282,7 @@ struct ContentView: View {
                 theme: theme,
                 placement: flightPlacement,
                 closeLabel: "Close the airport panel",
-                onClose: { sheet = nil }
+                onClose: closeWindow
             ) {
                 airportSheet(icao, presentation: .pane)
                     .id(icao)
@@ -1285,6 +1314,13 @@ struct ContentView: View {
         .motion(Motion.chrome, value: isChromeHidden)
         .onChange(of: isFollowing) { _, following in
             if !following { isChasing = false }
+        }
+        // Opened all the way, the window carries the weather itself, and the
+        // chip's card would only be a second copy floating over it.
+        .onChange(of: isWindowExpanded) { _, expanded in
+            if expanded, isWeatherExpanded {
+                withAnimation(Motion.control) { isWeatherExpanded = false }
+            }
         }
         // Let down to the bar, the sheet is the search field again.
         .onChange(of: dockDetent) { _, stop in
@@ -1589,7 +1625,7 @@ struct ContentView: View {
                 theme: appearance.windowTheme,
                 peakHeight: peakHeight,
                 isExpanded: $isWindowExpanded,
-                onClose: { sheet = nil },
+                onClose: closeWindow,
                 travel: flightWindowTravel
             ) {
                 FlightDetailView(
@@ -1603,7 +1639,8 @@ struct ContentView: View {
                     },
                     onReplay: { track in startReplay(of: selected.id, track: track) },
                     onSelectAirport: { field in openAirport(field, from: selected) },
-                    origin: flightReturn(for: selected)
+                    origin: flightReturn(for: selected),
+                    weather: weather
                 )
                     // No `.id`: tapping another aeroplane changes the window
                     // rather than replacing it — see
@@ -1630,7 +1667,7 @@ struct ContentView: View {
                 theme: theme,
                 peakHeight: AirportPanel.peakHeight,
                 isExpanded: $isAirportExpanded,
-                onClose: { sheet = nil },
+                onClose: closeWindow,
                 closeLabel: "Close the airport panel"
             ) {
                 airportSheet(icao)
@@ -1775,11 +1812,29 @@ struct ContentView: View {
 
     /// How much of the world is in view when a field is opened.
     ///
-    /// Wide enough to show the traffic on its way in rather than only the
-    /// runways: the panel's first section is the inbound list, and a camera
-    /// tight enough to read the taxiways would put every aircraft on that list
-    /// off screen.
-    private static let fieldSpanMeters: Double = 90_000
+    /// The field itself, filling the part of the map the panel leaves clear:
+    /// six kilometres is the runways and aprons of even the big hubs with a
+    /// little ground around them. It used to be ninety, to keep the inbound
+    /// traffic on screen, and that pulled back so far — a region, not an
+    /// airport — that the place being described was a dot. The traffic on
+    /// its way in is a pinch away; the field is what was asked for.
+    private static let fieldSpanMeters: Double = 6_000
+
+    /// Shuts whichever window is up, on the spring it opened on.
+    ///
+    /// Both halves of the close in one animated change. It used to be
+    /// `sheet = nil` alone, with the selection cleared a beat later by the
+    /// sheet watcher — and that second change carried no animation, so the
+    /// window was taken off the screen on the frame it was let go of instead
+    /// of folding back into the bar it was born from. Recorded on a slowed
+    /// spring, the window was gone in the first frame after the tap while the
+    /// dock was still fading in under where it had been.
+    private func closeWindow() {
+        withAnimation(reduceMotion ? nil : Motion.chrome) {
+            sheet = nil
+            selection = nil
+        }
+    }
 
     /// Open a field from somewhere with nothing to come back to.
     private func openAirport(_ airport: Airport) {

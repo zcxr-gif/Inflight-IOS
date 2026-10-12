@@ -171,6 +171,9 @@ struct StationWeatherCard: View {
 
     @ObservedObject var model: WeatherModel
     let theme: FlightInfoTheme
+    /// On a panel's surface rather than as glass over the map — see
+    /// `WeatherCard.isInset`.
+    var isInset: Bool = false
 
     @ObservedObject private var preferences = WeatherPreferences.shared
     @ObservedObject private var forecast = ForecastService.shared
@@ -200,13 +203,11 @@ struct StationWeatherCard: View {
                 temperatureC: station.temperatureC(forecast: forecast) ?? snapshot?.temperatureC,
                 isModelled: station.metar == nil,
                 snapshot: snapshot,
-                isLoading: isLoading
+                isLoading: isLoading,
+                isInset: isInset
             ) {
                 ForEach(routeEnds) { end in
-                    Rectangle()
-                        .fill(theme.stroke)
-                        .frame(height: 1)
-                        .padding(.horizontal, 18)
+                    PanelDivider()
                     row(for: end)
                 }
             }
@@ -265,7 +266,7 @@ struct StationWeatherCard: View {
                 .fixedSize()
                 .motionWords(temperature)
         }
-        .padding(.horizontal, 18)
+        .padding(.horizontal, 14)
         .padding(.vertical, 11)
     }
 
