@@ -1,0 +1,136 @@
+# Diagnostic only: runs the app in a simulator at a few commits and records
+# what it shows and which controls answer. Removed before merging.
+name: UI probe
+
+on:
+  push:
+    branches:
+      - 'claude/3d-buildings'
+  workflow_dispatch:
+
+concurrency:
+  group: ui-probe-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: macos-15
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: buildings-forced
+            ref: ''
+            patch: 'forced'
+          - name: buildings-forced-default
+            ref: ''
+            patch: 'forced-default'
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: probe
+
+      - uses: actions/checkout@v4
+        with:
+          path: app
+          ref: ${{ matrix.ref || github.sha }}
+          fetch-depth: 0
+
+      - name: Apply the variant's patch
+        if: matrix.patch != ''
+        working-directory: app/ios-native/InflightTracker
+        env:
+          PATCH: ${{ matrix.patch }}
+        run: |
+          python3 ../../../probe/tools/uiprobe/patch.py
+          git -C ../.. diff --stat
+
+      - name: Pick the newest Xcode
+        run: |
+          newest=$(ls -1d /Applications/Xcode*.app 2>/dev/null | sort -V | tail -1)
+          sudo xcode-select -s "$newest/Contents/Developer"
+          xcodebuild -version
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate the project with the probe
+        working-directory: app/ios-native
+        run: |
+          cp -R ../../probe/tools/uiprobe/UIProbe UIProbe
+          cp ../../probe/tools/uiprobe/ui-probe.yml ui-probe.yml
+          xcodegen generate --spec ui-probe.yml
+
+      - name: Pick a simulator
+        id: sim
+        run: |
+          udid=$(xcrun simctl list devices available -j | python3 -c '
+          import json,sys
+          d=json.load(sys.stdin)["devices"]
+          best=None
+          for rt,devs in d.items():
+              if "iOS" not in rt: continue
+              for x in devs:
+                  if x["name"].startswith("iPhone") and "Pro" in x["name"] and "Max" not in x["name"]:
+                      best=(rt,x["udid"],x["name"])
+          print(best[1]); print(best, file=sys.stderr)')
+          echo "udid=$udid" >> "$GITHUB_OUTPUT"
+          xcrun simctl boot "$udid" || true
+
+      - name: Run the probe
+        working-directory: app/ios-native
+        env:
+          TEST_RUNNER_PROBE_OUT: /tmp/probe
+        run: |
+          mkdir -p /tmp/probe
+          xcrun simctl spawn ${{ steps.sim.outputs.udid }} log stream --level debug --style compact \
+            --predicate 'process == "Inflight"' > /tmp/probe/app-log.txt 2>&1 &
+          set -o pipefail
+          xcodebuild test \
+            -project InflightTracker.xcodeproj \
+            -scheme InflightProbe \
+            -destination "id=${{ steps.sim.outputs.udid }}" \
+            -resultBundlePath /tmp/probe/result.xcresult \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGN_ENTITLEMENTS="" \
+            2>&1 | tee /tmp/probe/build.log | grep -E "PROBE:|error:|Test Case|\*\*" || true
+          echo "=== APP PROBE LINES"
+          grep "PROBE:" /tmp/probe/app-log.txt | cut -c1-6000 || true
+          echo "=== PROBE LOG"
+          cat /tmp/probe/log.txt || true
+          echo "=== APP ERRORS"
+          grep -vE "xctest|XCTQuery|User Defaults|com.apple.network|EventDispatch|Accessibility" /tmp/probe/app-log.txt \
+            | grep -E " E |Fault|error|Error|crash|assert" | cut -c1-260 | sort | uniq -c | sort -rn | head -60 || true
+          echo "=== APP INFLIGHT LINES"
+          grep -vE "com.apple|xctest|XCTQuery" /tmp/probe/app-log.txt | cut -c1-260 | head -120 || true
+          for f in /tmp/probe/*.png; do
+            n=$(basename "$f" .png)
+            sips -Z 1300 -s format jpeg -s formatOptions 75 "$f" --out "/tmp/probe/$n.jpg" > /dev/null
+          done
+
+      - name: Print the screenshots into the log
+        if: always()
+        run: |
+          for f in /tmp/probe/*.png; do
+            n=$(basename "$f" .png)
+            sips -Z 640 -s format jpeg -s formatOptions 55 "$f" --out "/tmp/probe/small-$n.jpg" > /dev/null
+            echo "=== IMAGE $n BEGIN"
+            base64 -b 120 -i "/tmp/probe/small-$n.jpg"
+            echo "=== IMAGE $n END"
+          done
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: probe-${{ matrix.name }}
+          path: |
+            /tmp/probe/*.png
+            /tmp/probe/*.txt
+            /tmp/probe/attachments
