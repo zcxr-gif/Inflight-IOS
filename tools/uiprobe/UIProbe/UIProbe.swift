@@ -27,8 +27,12 @@ final class UIProbe: XCTestCase {
         let field = app.textFields.firstMatch
         log += "field \(field.exists)\n"
         if field.exists {
-            field.tap()
-            sleep(1)
+            for _ in 0..<4 where app.keyboards.count == 0 {
+                field.tap()
+                sleep(2)
+            }
+            log += "keyboard \(app.keyboards.count)\n"
+            guard app.keyboards.count > 0 else { shot("02-no-keyboard"); return }
             field.typeText("EGLL")
             sleep(3)
             shot("02-search")
