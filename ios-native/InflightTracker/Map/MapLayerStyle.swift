@@ -119,11 +119,11 @@ enum MapLayerStyle {
     /// continent's width those are hundreds of pins over the traffic they are
     /// about. Close in, they are the few you are actually looking at.
     ///
-    /// From there the pins are drawn whatever else is on the map. A field with
-    /// traffic has aircraft standing on it, and under the usual collision
-    /// rules the pin of every field worth marking was the one left out; the
-    /// aircraft draw over it instead, and only the ICAO under it gives way
-    /// when the map is crowded.
+    /// From there the pins are drawn whatever else is on the map, and over
+    /// the traffic: a field with traffic has aircraft standing on it, and
+    /// under the usual rules the pin of every field worth marking was the one
+    /// covered or left out. Only the ICAO under it gives way when the map is
+    /// crowded.
     static let fieldMinZoom: Double = 6
 
     // MARK: - Installing
@@ -211,7 +211,10 @@ enum MapLayerStyle {
     /// place labels — where the overlays have always sat. Top is above the
     /// basemap's points of interest. The traffic and its labels go in no slot
     /// at all, which on Mapbox Standard means on top of everything, the
-    /// basemap's own labels included.
+    /// basemap's own labels included. The fields go in no slot too, after
+    /// the traffic, so a busy field's pin is not buried under the aeroplanes
+    /// standing on it — and before the open aircraft, the replay and the
+    /// ruler, which are what is being looked at when they are up.
     ///
     /// The flat satellite is the classic raster style, which has no slots;
     /// Mapbox ignores a slot that does not exist and stacks the layer in the
@@ -511,33 +514,6 @@ enum MapLayerStyle {
                 }
             },
             {
-                "id": "\(Layer.fields)", "type": "symbol", "source": "\(Source.fields)", "slot": "top",
-                "minzoom": \(fieldMinZoom),
-                "layout": {
-                    "icon-image": ["get", "icon"],
-                    "icon-anchor": "bottom",
-                    "icon-offset": [0, -5],
-                    "text-field": ["format", ["get", "icao"], {"text-color": ["get", "category"]}, ["get", "conditions"], {"font-scale": 0.86, "text-color": "#ffffff"}],
-                    "text-font": \(bold),
-                    "text-size": 9.5,
-                    "text-anchor": "top",
-                    "text-offset": [0, -0.35],
-                    "text-max-width": 12,
-                    "text-optional": true,
-                    "symbol-sort-key": ["get", "rank"],
-                    "icon-padding": 1,
-                    "icon-allow-overlap": true,
-                    "icon-ignore-placement": true
-                },
-                "paint": {
-                    "icon-opacity": ["get", "alpha"],
-                    "text-opacity": ["get", "alpha"],
-                    "text-halo-color": "rgba(0,0,0,0.85)",
-                    "text-halo-width": 1.3,
-                    "text-halo-blur": 0.6
-                }
-            },
-            {
                 "id": "\(Layer.fixes)", "type": "symbol", "source": "\(Source.fixes)", "slot": "top",
                 "layout": {
                     "icon-image": ["get", "icon"],
@@ -580,6 +556,33 @@ enum MapLayerStyle {
                 "filter": ["has", "label"],
                 "layout": \(label("label", overlap: false)),
                 "paint": {"text-color": "#ffffff"}
+            },
+            {
+                "id": "\(Layer.fields)", "type": "symbol", "source": "\(Source.fields)",
+                "minzoom": \(fieldMinZoom),
+                "layout": {
+                    "icon-image": ["get", "icon"],
+                    "icon-anchor": "bottom",
+                    "icon-offset": [0, -5],
+                    "text-field": ["format", ["get", "icao"], {"text-color": ["get", "category"]}, ["get", "conditions"], {"font-scale": 0.86, "text-color": "#ffffff"}],
+                    "text-font": \(bold),
+                    "text-size": 9.5,
+                    "text-anchor": "top",
+                    "text-offset": [0, -0.35],
+                    "text-max-width": 12,
+                    "text-optional": true,
+                    "symbol-sort-key": ["get", "rank"],
+                    "icon-padding": 1,
+                    "icon-allow-overlap": true,
+                    "icon-ignore-placement": true
+                },
+                "paint": {
+                    "icon-opacity": ["get", "alpha"],
+                    "text-opacity": ["get", "alpha"],
+                    "text-halo-color": "rgba(0,0,0,0.85)",
+                    "text-halo-width": 1.3,
+                    "text-halo-blur": 0.6
+                }
             },
             {
                 "id": "\(Layer.replay)", "type": "symbol", "source": "\(Source.replay)",

@@ -1582,6 +1582,28 @@ struct TrackerMapView: UIViewRepresentable {
             }
 
             let box = CGRect(x: point.x - 22, y: point.y - 22, width: 44, height: 44)
+
+            // A field's pin is drawn over the traffic, so a tap squarely on
+            // one is a tap on the field, whatever is standing under it. Only
+            // squarely: a tap near a pin still goes to the nearest aeroplane,
+            // as it always has.
+            let pin = CGRect(x: point.x - 8, y: point.y - 8, width: 16, height: 16)
+            let pinQuery = RenderedQueryOptions(layerIds: MapLayerStyle.tappableFields, filter: nil)
+            _ = map.queryRenderedFeatures(with: pin, options: pinQuery) { [weak self] result in
+                DispatchQueue.main.async {
+                    guard let self = self else { return }
+                    let hits = (try? result.get()) ?? []
+                    if !self.parent.measurement.isOn, let icao = self.nearest(hits, to: point, property: "icao") {
+                        self.parent.onSelectAirport(icao)
+                        return
+                    }
+                    self.handleTrafficTap(at: point, box: box, coordinate: coordinate)
+                }
+            }
+        }
+
+        private func handleTrafficTap(at point: CGPoint, box: CGRect, coordinate: CLLocationCoordinate2D) {
+            guard let map = map else { return }
             let trafficQuery = RenderedQueryOptions(layerIds: MapLayerStyle.tappableTraffic, filter: nil)
 
             _ = map.queryRenderedFeatures(with: box, options: trafficQuery) { [weak self] result in
