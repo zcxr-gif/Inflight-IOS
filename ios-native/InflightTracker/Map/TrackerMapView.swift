@@ -473,6 +473,7 @@ struct TrackerMapView: UIViewRepresentable {
 
             guard isStyleLoaded else { return }
 
+            applyZoomFloor()
             syncTerminator(on: map)
             syncMeasurement(on: map)
             syncWeatherTiles(on: map)
@@ -647,6 +648,57 @@ struct TrackerMapView: UIViewRepresentable {
 
         private func applyProjection(for look: MapLook) {
             try? map?.setProjection(StyleProjection(name: look.projection.styleProjection))
+            appliedProjection = look.projection
+            applyZoomFloor()
+        }
+
+        // MARK: The flat map's edges
+
+        /// The shape the map is actually drawn in — set when the projection
+        /// is, which on a change of style is when the new one lands, not when
+        /// it was asked for.
+        private var appliedProjection: MapProjection?
+
+        /// The least zoom last given to the camera, and the height of map it
+        /// was worked out for.
+        private var appliedZoomFloor: (zoom: Double, height: CGFloat)?
+
+        /// The furthest out the flat map goes: where the world is exactly as
+        /// tall as the map. Any further and there is nothing above the top of
+        /// the world or below the bottom of it — an edge, with grey beyond it,
+        /// and a camera that will not pan because every way it could go is off
+        /// the world.
+        private static func flatFloorZoom(forHeight height: CGFloat) -> Double {
+            guard height > 1 else { return 0 }
+            return max(log2(Double(height) / 512) + 0.02, 0)
+        }
+
+        /// Holds the flat map's zoom to its floor, and lets the globe go as far
+        /// out as it likes. Worked out again whenever the map's height changes:
+        /// a phone turned on its side has a lower floor than one standing up.
+        private func applyZoomFloor() {
+            guard let mapView = mapView, let map = map, let projection = appliedProjection else { return }
+            let height = mapView.bounds.height
+            guard height > 1 else { return }
+            let zoom = projection == .globe ? 0 : Self.flatFloorZoom(forHeight: height)
+            if let applied = appliedZoomFloor, applied.zoom == zoom, applied.height == height { return }
+            appliedZoomFloor = (zoom, height)
+            try? map.setCameraBounds(with: CameraBoundsOptions(minZoom: CGFloat(zoom)))
+        }
+
+        /// The nearest centre to `centre` at which a flat map this tall, at this
+        /// zoom and with no padding, shows no edge above or below the world.
+        private static func flatCentre(
+            _ centre: CLLocationCoordinate2D,
+            zoom: Double,
+            height: CGFloat
+        ) -> CLLocationCoordinate2D {
+            let world = MercatorRect.worldSide
+            let worldPoints = 512 * pow(2, zoom)
+            let half = min(Double(height) / 2 / worldPoints, 0.5) * world
+            var point = MercatorPoint(centre)
+            point.y = min(max(point.y, half), world - half)
+            return CLLocationCoordinate2D(latitude: point.coordinate.latitude, longitude: centre.longitude)
         }
 
         private var terrainInstalled = false
@@ -688,6 +740,27 @@ struct TrackerMapView: UIViewRepresentable {
                 mapView.camera.ease(
                     to: CameraOptions(center: state.center, zoom: min(state.zoom, zoom), bearing: 0, pitch: 0),
                     duration: 0.9
+                )
+            } else if previous.projection == .globe {
+                // Off the globe, the camera is wherever the planet was being
+                // looked at from — usually much further out than the flat map
+                // can go, since the globe only looks like one from out there.
+                // Carried across as it was, that was a world shorter than the
+                // screen: its edge in view, and a map that would not pan
+                // because every way it could go was off the world. So it comes
+                // in to where the flat world fills the map, and up or down to
+                // where no edge shows. Level too, unless the look tilts.
+                let height = mapView.bounds.height
+                let zoom = max(Double(state.zoom), Self.flatFloorZoom(forHeight: height))
+                let levels = !look.isPitchEnabled && parent.aircraftModels == .off
+                mapView.camera.ease(
+                    to: CameraOptions(
+                        center: Self.flatCentre(state.center, zoom: zoom, height: height),
+                        padding: .zero,
+                        zoom: CGFloat(zoom),
+                        pitch: levels ? 0 : nil
+                    ),
+                    duration: 0.6
                 )
             } else if state.pitch != 0, !look.isPitchEnabled, parent.aircraftModels == .off {
                 // Level again on a look that does not tilt. The way the map is
