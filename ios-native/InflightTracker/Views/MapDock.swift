@@ -480,7 +480,10 @@ struct MapDock: View {
                 state = -value.translation.height
             }
             .onEnded { value in
-                land(flick: -value.predictedEndTranslation.height)
+                land(
+                    flick: -value.predictedEndTranslation.height,
+                    travel: -value.translation.height
+                )
             }
     }
 
@@ -500,20 +503,46 @@ struct MapDock: View {
             },
             pullEnded: { flick in
                 guard detent == .full else { return }
-                land(flick: flick)
+                land(flick: flick, travel: flick)
                 withAnimation(Motion.chrome) { titlePull = 0 }
             }
         )
     }
 
-    /// Settles on whichever stop is nearest where the flick would land.
-    private func land(flick: CGFloat) {
+    /// How far a pull has to carry the sheet to have meant it: past this, it
+    /// moves at least one stop that way rather than springing back.
+    private static let commitTravel: CGFloat = 44
+
+    /// Settles on whichever stop is nearest where the flick would land, with
+    /// two rules on top.
+    ///
+    /// A pull that went somewhere goes somewhere. Nearest alone sent a sheet
+    /// pulled a third of the way down from the top straight back up to it —
+    /// the stops are far apart there — which reads as the sheet bouncing back
+    /// out of your hand.
+    ///
+    /// And the search field alone is reached only from the bar. A flick down
+    /// from half or the top travels past the bar's stop, and nearest then
+    /// picked the stop under it, so the bar went with it in one movement: the
+    /// sheet came down to the field alone when it was meant to come down to
+    /// the field and the bar, and the second push had nothing left to do.
+    private func land(flick: CGFloat, travel: CGFloat) {
         let landing = restingHeight + flick
-        let nearest = MapDockDetent.allCases.min { lhs, rhs in
+        var target = MapDockDetent.allCases.min { lhs, rhs in
             abs(Self.height(for: lhs, in: room) - landing)
                 < abs(Self.height(for: rhs, in: room) - landing)
         } ?? detent
-        settle(to: nearest)
+
+        if target == detent, abs(travel) > Self.commitTravel {
+            let next = detent.rawValue + (travel < 0 ? -1 : 1)
+            target = MapDockDetent(rawValue: next) ?? detent
+        }
+
+        if target == .minimized, detent != .collapsed, detent != .minimized {
+            target = .collapsed
+        }
+
+        settle(to: target)
     }
 
     /// A tap on the handle: up a stop, and from the top back down to the bar.

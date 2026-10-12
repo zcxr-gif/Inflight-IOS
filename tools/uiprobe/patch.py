@@ -3,6 +3,17 @@
 import os
 kind = os.environ["PATCH"]
 
+if kind == "motion":
+    # The window's spring, slowed about ten times so a screenshot every
+    # third of a second lands in the middle of it opening and closing.
+    p = "Views/Motion.swift"
+    s = open(p).read()
+    old = "static let chrome = Animation.spring(response: 0.36, dampingFraction: 0.88)"
+    assert old in s
+    s = s.replace(old, "static let chrome = Animation.spring(response: 3.6, dampingFraction: 0.88)")
+    open(p, "w").write(s)
+    raise SystemExit(0)
+
 p = "Map/MapLook.swift"
 s = open(p).read()
 assert "show3dObjects: custom.shows3DBuildings," in s

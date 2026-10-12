@@ -29,6 +29,9 @@ jobs:
           - name: buildings-forced-default
             ref: ''
             patch: 'forced-default'
+          - name: window-motion
+            ref: ''
+            patch: 'motion'
 
     steps:
       - uses: actions/checkout@v4
@@ -86,6 +89,7 @@ jobs:
         working-directory: app/ios-native
         env:
           TEST_RUNNER_PROBE_OUT: /tmp/probe
+          TEST_RUNNER_PROBE_KIND: ${{ matrix.patch }}
         run: |
           mkdir -p /tmp/probe
           xcrun simctl spawn ${{ steps.sim.outputs.udid }} log stream --level debug --style compact \
@@ -105,6 +109,7 @@ jobs:
           grep "PROBE:" /tmp/probe/app-log.txt | cut -c1-6000 || true
           echo "=== PROBE LOG"
           cat /tmp/probe/log.txt || true
+          head -c 20000 /tmp/probe/tree.txt 2>/dev/null || true
           echo "=== APP ERRORS"
           grep -vE "xctest|XCTQuery|User Defaults|com.apple.network|EventDispatch|Accessibility" /tmp/probe/app-log.txt \
             | grep -E " E |Fault|error|Error|crash|assert" | cut -c1-260 | sort | uniq -c | sort -rn | head -60 || true
@@ -120,7 +125,7 @@ jobs:
         run: |
           for f in /tmp/probe/*.png; do
             n=$(basename "$f" .png)
-            sips -Z 640 -s format jpeg -s formatOptions 55 "$f" --out "/tmp/probe/small-$n.jpg" > /dev/null
+            sips -Z 460 -s format jpeg -s formatOptions 45 "$f" --out "/tmp/probe/small-$n.jpg" > /dev/null
             echo "=== IMAGE $n BEGIN"
             base64 -b 120 -i "/tmp/probe/small-$n.jpg"
             echo "=== IMAGE $n END"
