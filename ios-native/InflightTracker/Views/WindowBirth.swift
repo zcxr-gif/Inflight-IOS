@@ -8,7 +8,8 @@ import SwiftUI
 /// starts as the island, in the island's place and the island's shape, opens
 /// out to the window's frame, and only then does the window's content come up
 /// through it. Closing runs the same thing backwards, so the window folds back
-/// into the bar it came out of rather than dropping off the screen.
+/// into the bar it came out of rather than dropping off the screen — and at the
+/// island it dissolves into the bar itself rather than landing on top of it.
 ///
 /// Two pieces. `AnyTransition.bornFromDock` is the transition a window is
 /// inserted and removed with: all it does is hand its progress down. The
@@ -90,6 +91,7 @@ private struct BornFromDock: ViewModifier {
         let start = island.isEmpty || frame.isEmpty
             ? nil
             : island.offsetBy(dx: -frame.minX, dy: -frame.minY)
+        let shaped = start == nil ? 1 : progress
 
         return content
             // The island's glass over the window's content while it is still
@@ -100,12 +102,33 @@ private struct BornFromDock: ViewModifier {
                     .allowsHitTesting(false)
             }
             .clipShape(BirthShape(
-                progress: start == nil ? 1 : progress,
+                progress: shaped,
                 start: start ?? .zero,
                 topRadius: topRadius,
                 bottomRadius: bottomRadius
             ))
+            // And the window itself handed over to the bar at the island end,
+            // rather than standing on top of it. See `presence`.
+            .opacity(Self.presence(shaped))
             .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { frame = $0 }
+    }
+
+    /// How much of the window there is at all, glass and shadow together.
+    ///
+    /// Whole until the last stretch before the island, then gone by the time
+    /// it gets there. The bar fades back in underneath as a window closes, and
+    /// the glass used to arrive at the island opaque, in the window's own
+    /// colour rather than the bar's, and sit on top of the bar until the very
+    /// last frame — an empty dark slab where the toolbar should be, for a beat,
+    /// and then the real bar popping in under it. Fading out over the same
+    /// stretch the bar fades in, the window lands *as* the bar. Opening, it is
+    /// the same dissolve the other way: the bar into the window's glass, which
+    /// then grows.
+    static func presence(_ progress: CGFloat) -> Double {
+        let end: CGFloat = 0.35
+        guard progress < end else { return 1 }
+        let t = max(progress, 0) / end
+        return Double(t * t * (3 - 2 * t))
     }
 
     /// The island's glass stays whole for the first third of the growth, so
