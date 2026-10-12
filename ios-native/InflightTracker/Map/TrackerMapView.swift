@@ -606,6 +606,8 @@ struct TrackerMapView: UIViewRepresentable {
             // reframes at once, whether or not a new style is still loading.
             if let previous = previous, previous.projection != look.projection {
                 reframe(from: previous, to: look)
+            } else if let previous = previous, previous.showsBuildings != look.showsBuildings {
+                tiltForBuildings(in: look)
             }
 
             guard isStyleLoaded else { return }
@@ -690,6 +692,29 @@ struct TrackerMapView: UIViewRepresentable {
                 // Level again on a look that does not tilt. The way the map is
                 // turned is the user's, and stays.
                 mapView.camera.ease(to: CameraOptions(pitch: 0), duration: 0.5)
+            }
+        }
+
+        /// How far the camera leans when buildings switch on: enough to see
+        /// their walls, short of the near-horizon view the models take.
+        private static let buildingsPitch: CGFloat = 45
+
+        /// Moves the camera to suit the buildings switching on or off.
+        ///
+        /// On, it leans over, because buildings seen straight down are a flat
+        /// map and the switch would look like it had done nothing. Off, it
+        /// levels again only if nothing else on the map still tilts — terrain,
+        /// the globe and the models each keep the camera where it is. The way
+        /// the map is turned is left alone either way.
+        private func tiltForBuildings(in look: MapLook) {
+            guard let mapView = mapView, let map = map else { return }
+            let pitch = map.cameraState.pitch
+
+            if look.showsBuildings {
+                guard !parent.isChasing, pitch < Self.buildingsPitch else { return }
+                mapView.camera.ease(to: CameraOptions(pitch: Self.buildingsPitch), duration: 0.8, curve: .easeInOut)
+            } else if pitch != 0, !look.isPitchEnabled, parent.aircraftModels == .off {
+                mapView.camera.ease(to: CameraOptions(pitch: 0), duration: 0.8, curve: .easeInOut)
             }
         }
 
