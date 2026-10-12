@@ -49,6 +49,12 @@ workflows:
     triggering:
       events:
         - push
+      # A push supersedes whatever is still queued or running for the same
+      # branch. Without this every push waits its turn behind every earlier
+      # one, and a run of quick pushes (a probe, then its removal) stacked up
+      # hours of signed builds and TestFlight uploads nobody was going to
+      # install, ahead of the one that mattered.
+      cancel_previous_builds: true
       branch_patterns:
         - pattern: '*'
           include: true
