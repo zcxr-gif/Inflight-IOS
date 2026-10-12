@@ -593,7 +593,7 @@
 "Looking for Infinite Flight on this network…" = "Looking for Infinite Flight on this network…";
 "MATERIAL" = "MATERIAL";
 "MOVEMENT" = "MOVEMENT";
-"Marks fields with somebody on frequency, and the busiest of the rest. Tap one to open it." = "Marks fields with somebody on frequency, and the busiest of the rest. Tap one to open it.";
+"Marks every field with traffic inbound in white, and in green where ATC is on frequency, once the map is zoomed in close. Tap one to open it." = "Marks every field with traffic inbound in white, and in green where ATC is on frequency, once the map is zoomed in close. Tap one to open it.";
 "Mint aeroplanes" = "Mint aeroplanes";
 "Missing" = "Missing";
 "NAVIGATION DISPLAY" = "NAVIGATION DISPLAY";
@@ -1708,3 +1708,6 @@
 "The planet has colours of its own, below." = "The planet has colours of its own, below.";
 "Satellite imagery has nothing to edit. Pick a drawn map to customise it." = "Satellite imagery has nothing to edit. Pick a drawn map to customise it.";
 "The globe takes the light, the names and the borders." = "The globe takes the light, the names and the borders.";
+
+"Weather at fields" = "Weather at fields";
+"Marks every field where it is raining, snowing, storming or foggy, and zoomed in over one, the rain or snow falls on the map, with lightning in a storm and haze in fog. From the same reports, so it costs nothing." = "Marks every field where it is raining, snowing, storming or foggy, and zoomed in over one, the rain or snow falls on the map, with lightning in a storm and haze in fog. From the same reports, so it costs nothing.";

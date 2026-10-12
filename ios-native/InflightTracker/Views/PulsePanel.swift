@@ -46,8 +46,6 @@ struct PulsePanel: View {
                 aircraft
             }
 
-            HintStrip(placement: .stats)
-
             Text("Counted from the same packet the map is drawn from, so these can never disagree with what is on screen. Only the most-watched list is fetched.")
                 .font(.system(size: 10.5, weight: .medium))
                 .foregroundStyle(theme.textDim)

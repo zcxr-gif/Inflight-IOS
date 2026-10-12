@@ -593,7 +593,7 @@
 "Looking for Infinite Flight on this network…" = "Ищем Infinite Flight в этой сети…";
 "MATERIAL" = "МАТЕРИАЛ";
 "MOVEMENT" = "ДВИЖЕНИЕ";
-"Marks fields with somebody on frequency, and the busiest of the rest. Tap one to open it." = "Отмечает аэродромы с диспетчером на частоте и самые загруженные из остальных. Нажмите, чтобы открыть.";
+"Marks every field with traffic inbound in white, and in green where ATC is on frequency, once the map is zoomed in close. Tap one to open it." = "Отмечает белым каждый аэродром, куда летят самолёты, и зелёным — где на частоте работает диспетчер, когда карта приближена. Нажмите, чтобы открыть.";
 "Mint aeroplanes" = "Мятные самолёты";
 "Missing" = "Отсутствуют";
 "NAVIGATION DISPLAY" = "НАВИГАЦИОННЫЙ ДИСПЛЕЙ";
@@ -1708,3 +1708,6 @@
 "The planet has colours of its own, below." = "У планеты свои цвета — ниже.";
 "Satellite imagery has nothing to edit. Pick a drawn map to customise it." = "В спутниковых снимках нечего настраивать. Выберите нарисованную карту, чтобы её изменить.";
 "The globe takes the light, the names and the borders." = "Для глобуса доступны освещение, названия и границы.";
+
+"Weather at fields" = "Погода на аэродромах";
+"Marks every field where it is raining, snowing, storming or foggy, and zoomed in over one, the rain or snow falls on the map, with lightning in a storm and haze in fog. From the same reports, so it costs nothing." = "Отмечает каждый аэродром, где идёт дождь, снег, гроза или стоит туман, а при приближении к нему дождь или снег падает прямо на карту — с молниями в грозу и дымкой в тумане. Из тех же сводок, поэтому ничего не стоит.";

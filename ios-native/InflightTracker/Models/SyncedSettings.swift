@@ -119,6 +119,7 @@ struct SyncedSettings: Codable, Equatable {
     var windParticles: Bool?
     var windHeat: String?
     var showsFieldConditions: Bool?
+    var showsFieldWeather: Bool?
 
     // MARK: - Instruments
 
@@ -209,6 +210,7 @@ struct SyncedSettings: Codable, Equatable {
         settings.windParticles = weather.showsWindParticles
         settings.windHeat = weather.windHeat.rawValue
         settings.showsFieldConditions = weather.showsFieldConditions
+        settings.showsFieldWeather = weather.showsFieldWeather
 
         settings.instrumentsEnabled = instruments.isEnabled
         settings.instrumentDisplay = instruments.display.rawValue
@@ -368,6 +370,7 @@ struct SyncedSettings: Codable, Equatable {
         if let showsFieldConditions = showsFieldConditions {
             weather.showsFieldConditions = showsFieldConditions
         }
+        if let showsFieldWeather = showsFieldWeather { weather.showsFieldWeather = showsFieldWeather }
 
         if let instrumentsEnabled = instrumentsEnabled { instruments.isEnabled = instrumentsEnabled }
         if let value = instrumentDisplay.flatMap(InstrumentDisplay.init(rawValue:)) {

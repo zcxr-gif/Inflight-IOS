@@ -593,7 +593,7 @@
 "Looking for Infinite Flight on this network…" = "Procurando o Infinite Flight nesta rede…";
 "MATERIAL" = "MATERIAL";
 "MOVEMENT" = "MOVIMENTO";
-"Marks fields with somebody on frequency, and the busiest of the rest. Tap one to open it." = "Marca aeródromos com alguém na frequência e os mais movimentados entre os demais. Toque em um para abrir.";
+"Marks every field with traffic inbound in white, and in green where ATC is on frequency, once the map is zoomed in close. Tap one to open it." = "Marca em branco cada aeródromo com tráfego chegando, e em verde onde há ATC na frequência, quando o mapa está bem aproximado. Toque em um para abri-lo.";
 "Mint aeroplanes" = "Aviões cor de menta";
 "Missing" = "Ausentes";
 "NAVIGATION DISPLAY" = "DISPLAY DE NAVEGAÇÃO";
@@ -1708,3 +1708,6 @@
 "The planet has colours of its own, below." = "O planeta tem cores próprias, abaixo.";
 "Satellite imagery has nothing to edit. Pick a drawn map to customise it." = "Imagens de satélite não têm nada para editar. Escolha um mapa desenhado para personalizá-lo.";
 "The globe takes the light, the names and the borders." = "O globo aceita a luz, os nomes e as fronteiras.";
+
+"Weather at fields" = "Tempo nos aeródromos";
+"Marks every field where it is raining, snowing, storming or foggy, and zoomed in over one, the rain or snow falls on the map, with lightning in a storm and haze in fog. From the same reports, so it costs nothing." = "Marca cada aeródromo onde está chovendo, nevando, com tempestade ou neblina; ao aproximar o zoom de um deles, a chuva ou a neve cai sobre o mapa, com relâmpagos na tempestade e névoa na neblina. Vem dos mesmos boletins, então não custa nada.";

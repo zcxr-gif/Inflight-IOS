@@ -57,8 +57,6 @@ struct AirportsPanel: View {
                     }
                 }
             }
-
-            HintStrip(placement: .airports)
         }
     }
 

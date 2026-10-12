@@ -227,8 +227,6 @@ struct AirportPanel: View {
             diagram
 
             traffic(activity)
-
-            HintStrip(placement: .airport)
         }
         .onAppear {
             if let cached = WeatherService.shared.cached(airport.icao) {
@@ -390,7 +388,17 @@ struct AirportPanel: View {
                 .fixedSize()
         }
         .padding(.horizontal, 14)
-        .padding(.vertical, 12)
+        // A little more room when there is weather to see falling behind it.
+        .padding(.vertical, metar.precipitation == nil ? 12 : 22)
+        .background {
+            // The report, drawn: rain, snow, a storm or fog moving behind the
+            // words. Only with the weather on the map switched on, the same
+            // switch that draws it there.
+            if weatherPreferences.showsFieldWeather, let kind = metar.precipitation {
+                FieldWeatherScene(kind: kind, intensity: metar.intensity, isLight: theme.isLight)
+                    .clipped()
+            }
+        }
     }
 
     /// What the field is good for, in the colour the map is drawing its ICAO

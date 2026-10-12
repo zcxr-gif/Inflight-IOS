@@ -1,5 +1,4 @@
 import SwiftUI
-import UIKit
 
 /// Where the dock is resting.
 ///
@@ -162,18 +161,15 @@ struct MapDock: View {
     /// The island is laid out from the foot of the screen, not the safe area —
     /// its lower edge stands down into the home indicator's band, as Safari's
     /// does — so the band is taken back off here.
-    static func reservedHeight(for detent: MapDockDetent) -> CGFloat {
+    ///
+    /// The band is handed in, worked out from heights SwiftUI measures (see
+    /// `ContentView.noteHomeIndicatorBand`). It used to be read off the key
+    /// window from inside the body, and with that read in it the main screen
+    /// stopped updating after its first pass — no traffic handed to the map,
+    /// and no button on it doing anything.
+    static func reservedHeight(for detent: MapDockDetent, homeIndicatorBand: CGFloat) -> CGFloat {
         let island = detent == .minimized ? minimizedHeight : islandHeight
         return max(island + islandMargin - homeIndicatorBand, 0)
-    }
-
-    /// The band along the foot of the screen the home indicator sits in. Read
-    /// off the window rather than a view, because a view's safe area grows
-    /// with the keyboard and this must not.
-    static var homeIndicatorBand: CGFloat {
-        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
-        let scene = scenes.first { $0.activationState == .foregroundActive } ?? scenes.first
-        return scene?.keyWindow?.safeAreaInsets.bottom ?? 0
     }
 
     /// Room left above the full sheet, under the status bar.
@@ -231,6 +227,30 @@ struct MapDock: View {
         guard travel > 0 else { return 1 }
         return Double(min(max((liveHeight - Self.minimizedHeight) / travel, 0), 1))
     }
+
+    /// How far the island has filled out into the screen's edges, 0...1.
+    ///
+    /// Nothing at half and below, where it floats clear of the edges. All of
+    /// it at the top stop, where a panel or the lists have the whole screen
+    /// and a gap down both sides and under the foot is just the map showing
+    /// through round a page. In between it rides the height, so it follows
+    /// the finger on a pull and the sheet's own spring when it settles.
+    private var fill: CGFloat {
+        let half = Self.height(for: .half, in: room)
+        let travel = fullHeight - half
+        guard travel > 1 else { return detent == .full ? 1 : 0 }
+        return min(max((liveHeight - half) / travel, 0), 1)
+    }
+
+    /// How far the island's edge stands out past its content on the sides and
+    /// the foot: from nothing to the whole margin, so the gaps close from the
+    /// inside out. The content itself never moves.
+    private var spread: CGFloat { Self.islandMargin * fill }
+
+    /// The island's two lower corners. Rounded while it floats; square once it
+    /// reaches the foot of the screen, where the display's own corners round
+    /// it, the same as the flight window.
+    private var bottomRadius: CGFloat { Self.cornerRadius * (1 - fill) }
 
     /// Everything in the sheet that is not the scrolling body.
     private var chromeHeight: CGFloat {
@@ -313,14 +333,22 @@ struct MapDock: View {
         .clipShape(RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous))
         .background {
             // An island with four rounded corners, clear of the screen's
-            // edges, rather than a sheet running off the foot of the display.
-            let shape = RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous)
+            // edges — until the sheet goes to the top, when its edge grows out
+            // past the content to meet both sides and the foot. See `fill`.
+            let shape = UnevenRoundedRectangle(
+                topLeadingRadius: Self.cornerRadius,
+                bottomLeadingRadius: bottomRadius,
+                bottomTrailingRadius: bottomRadius,
+                topTrailingRadius: Self.cornerRadius,
+                style: .continuous
+            )
             theme.sheetBackground
                 .clipShape(shape)
                 .overlay {
                     shape.stroke(theme.stroke, lineWidth: 1)
                 }
-                .shadow(color: .black.opacity(0.24), radius: 20, y: 6)
+                .shadow(color: .black.opacity(0.24 * (1 - fill)), radius: 20, y: 6)
+                .padding(EdgeInsets(top: 0, leading: -spread, bottom: -spread, trailing: -spread))
         }
         .padding(.bottom, Self.islandMargin)
         .frame(width: width)

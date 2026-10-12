@@ -50,6 +50,26 @@ struct Metar: Equatable {
         case rain
         case drizzle
         case fog
+
+        /// Which of two groups in one report wins: the one that changes what
+        /// the field is like to fly into.
+        var severity: Int {
+            switch self {
+            case .thunderstorm: return 4
+            case .snow: return 3
+            case .rain: return 2
+            case .drizzle: return 1
+            case .fog: return 0
+            }
+        }
+    }
+
+    /// How hard it is coming down: the `-` and `+` in front of a weather
+    /// group, with showers in the vicinity read as light.
+    enum Intensity: Equatable {
+        case light
+        case moderate
+        case heavy
     }
 
     let station: String
@@ -70,6 +90,7 @@ struct Metar: Equatable {
     let ceilingFeet: Int?
     let coverage: Coverage
     let precipitation: Precipitation?
+    let intensity: Intensity
 
     /// Reads the parts of a report the window shows and ignores the rest —
     /// remarks, runway state, trends.
@@ -91,8 +112,20 @@ struct Metar: Equatable {
         var coverage: Coverage = .clear
         var ceiling: Int?
         var precipitation: Precipitation?
+        var intensity: Intensity = .moderate
+
+        // A trend or the remarks start here, and nothing after it is the
+        // weather now: `TEMPO TSRA` is a thunderstorm that may come, not one
+        // that is overhead.
+        var isPastObservation = false
 
         for token in tokens.dropFirst() {
+            if ["TEMPO", "BECMG", "RMK", "NOSIG", "PROB30", "PROB40"].contains(token)
+                || (token.hasPrefix("FM") && token.count == 8) {
+                isPastObservation = true
+            }
+            if isPastObservation { continue }
+
             if token.hasSuffix("KT"), token.count >= 7 {
                 let body = String(token.dropLast(2))
                 let headingPart = String(body.prefix(3))
@@ -146,8 +179,10 @@ struct Metar: Equatable {
                 ceiling = Metar.lowest(ceiling, in: token, after: 2)
             }
 
-            if precipitation == nil {
-                precipitation = weather(in: token)
+            if let group = weather(in: token),
+               precipitation.map({ group.kind.severity > $0.severity }) ?? true {
+                precipitation = group.kind
+                intensity = group.intensity
             }
         }
 
@@ -162,7 +197,8 @@ struct Metar: Equatable {
             visibilityMetres: visibility,
             ceilingFeet: ceiling,
             coverage: coverage,
-            precipitation: precipitation
+            precipitation: precipitation,
+            intensity: intensity
         )
     }
 
@@ -220,12 +256,50 @@ struct Metar: Equatable {
         return (temperature, dew)
     }
 
-    private static func weather(in token: String) -> Precipitation? {
-        if token.contains("TS") { return .thunderstorm }
-        if token.contains("SN") || token.contains("SG") { return .snow }
-        if token.contains("RA") { return .rain }
-        if token.contains("DZ") { return .drizzle }
-        if token.contains("FG") || token.contains("BR") || token.contains("HZ") { return .fog }
+    /// A present-weather group — `-RA`, `+TSRA`, `VCSH`, `FZFG`, `SHSNRA` —
+    /// read as what it means for the field.
+    ///
+    /// Only a token made entirely of the two-letter weather codes counts. It
+    /// used to be any token containing `RA` or `TS`, which a station
+    /// identifier or a runway state group could do by accident.
+    private static func weather(in token: String) -> (kind: Precipitation, intensity: Intensity)? {
+        var body = Substring(token)
+        var intensity: Intensity = .moderate
+        if body.hasPrefix("+") {
+            intensity = .heavy
+            body = body.dropFirst()
+        } else if body.hasPrefix("-") {
+            intensity = .light
+            body = body.dropFirst()
+        } else if body.hasPrefix("VC") {
+            intensity = .light
+            body = body.dropFirst(2)
+        }
+
+        guard !body.isEmpty, body.count % 2 == 0, body.count <= 8 else { return nil }
+        var codes: [String] = []
+        var index = body.startIndex
+        while index < body.endIndex {
+            let next = body.index(index, offsetBy: 2)
+            codes.append(String(body[index..<next]))
+            index = next
+        }
+
+        let known: Set<String> = [
+            "MI", "PR", "BC", "DR", "BL", "SH", "TS", "FZ",
+            "DZ", "RA", "SN", "SG", "IC", "PL", "GR", "GS", "UP",
+            "BR", "FG", "FU", "VA", "DU", "SA", "HZ", "PY", "PO", "SQ", "FC", "SS", "DS",
+        ]
+        guard codes.allSatisfy(known.contains) else { return nil }
+
+        func any(_ wanted: [String]) -> Bool { wanted.contains(where: codes.contains) }
+
+        if any(["TS"]) { return (.thunderstorm, intensity) }
+        if any(["SN", "SG", "IC", "PL"]) { return (.snow, intensity) }
+        // Showers on their own are showers of rain.
+        if any(["RA", "GR", "GS", "UP"]) || codes == ["SH"] { return (.rain, intensity) }
+        if any(["DZ"]) { return (.drizzle, intensity) }
+        if any(["FG", "BR", "HZ", "FU"]) { return (.fog, intensity) }
         return nil
     }
 

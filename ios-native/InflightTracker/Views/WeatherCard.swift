@@ -378,6 +378,92 @@ extension WeatherCard where Footer == EmptyView {
     }
 }
 
+// MARK: - The readout
+
+/// The weather as one line of a readout: the sky as a glyph, the temperature,
+/// and after a hairline the one thing worth reading next — a field's code and
+/// its wind, or the air quality where there is no field.
+///
+/// The app's own shape rather than the system's weather widget: one short
+/// capsule of glass, the figures set in the rounded and monospaced faces the
+/// rest of the app's readouts use, small enough to sit in a corner of the map
+/// without being the thing on it. The map's pill and the flight window's chip
+/// are both this, so the two read as one control in two places.
+struct WeatherReadout: View {
+
+    let theme: FlightInfoTheme
+    let symbol: String
+    let temperature: String
+    /// Set small and heavy, the way the app writes a code: `EGLL`, `AQI`.
+    var tag: String? = nil
+    /// Beside the tag: the air quality's colour.
+    var dot: Color? = nil
+    /// After the tag, in the monospaced face: `240°/12kt`, `31`.
+    var detail: String? = nil
+    /// The figures are the model's rather than an observation — marked the
+    /// way every other place in the app marks it.
+    var isModelled = false
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: symbol)
+                .symbolRenderingMode(.hierarchical)
+                .font(.system(size: 12, weight: .semibold))
+                .frame(width: 16)
+
+            Text(L(temperature))
+                .font(.system(size: 14, weight: .bold, design: .rounded))
+                .monospacedDigit()
+                .fixedSize()
+                .motionWords(temperature)
+
+            if tag != nil || detail != nil {
+                Rectangle()
+                    .fill(theme.stroke)
+                    .frame(width: 1, height: 13)
+
+                HStack(spacing: 4) {
+                    if let tag {
+                        Text(L(tag))
+                            .font(.system(size: 9.5, weight: .heavy))
+                            .tracking(0.6)
+                            .foregroundStyle(theme.textSecondary)
+                            .fixedSize()
+                            .motionWords(tag)
+                    }
+
+                    if isModelled {
+                        ForecastSourceMark(colour: theme.textDim)
+                    }
+
+                    if let dot {
+                        Circle()
+                            .fill(dot)
+                            .frame(width: 6, height: 6)
+                    }
+
+                    if let detail {
+                        Text(L(detail))
+                            .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                            .foregroundStyle(theme.textDim)
+                            .lineLimit(1)
+                            .fixedSize()
+                            .motionWords(detail)
+                    }
+                }
+            }
+        }
+        .foregroundStyle(theme.textPrimary)
+        .padding(.leading, 9)
+        .padding(.trailing, 11)
+        .padding(.vertical, 6)
+        // One control, so it gets the system's press response.
+        .flightInfoChrome(theme, in: Capsule(), interactive: true)
+        .contentShape(Capsule())
+        .environment(\.colorScheme, theme.colorScheme)
+    }
+}
+
 // MARK: - The map's pill
 
 /// The weather where the map is looking, top left, while nothing is open and
@@ -399,38 +485,18 @@ struct AreaWeatherPill: View {
         Button {
             withAnimation(Motion.control) { isExpanded.toggle() }
         } label: {
-            VStack(alignment: .leading, spacing: 1) {
-                HStack(spacing: 5) {
-                    Image(systemName: reading.snapshot.symbolName)
-                        .symbolRenderingMode(.hierarchical)
-                        .font(.system(size: 17))
-                    Text(L(temperature))
-                        .font(.system(size: 21, weight: .medium))
-                        .fixedSize()
-                        .motionWords(temperature)
-                }
-                .foregroundStyle(theme.textPrimary)
-
-                if let index = reading.snapshot.airQualityIndex {
-                    HStack(spacing: 5) {
-                        Text(L("AQI \(index)"))
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundStyle(theme.textSecondary)
-                        Circle()
-                            .fill(AirQuality.colour(index))
-                            .frame(width: 7, height: 7)
-                    }
-                } else {
-                    Text(L(reading.snapshot.conditionLabel))
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(theme.textSecondary)
-                        .lineLimit(1)
-                }
+            if let index = reading.snapshot.airQualityIndex {
+                WeatherReadout(
+                    theme: theme,
+                    symbol: reading.snapshot.symbolName,
+                    temperature: temperature,
+                    tag: "AQI",
+                    dot: AirQuality.colour(index),
+                    detail: "\(index)"
+                )
+            } else {
+                WeatherReadout(theme: theme, symbol: reading.snapshot.symbolName, temperature: temperature)
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .flightInfoChrome(theme, in: RoundedRectangle(cornerRadius: 16, style: .continuous), interactive: true)
-            .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         }
         .buttonStyle(.plain)
         .environment(\.colorScheme, theme.colorScheme)

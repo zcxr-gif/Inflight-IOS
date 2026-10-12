@@ -28,7 +28,7 @@ settings:
     # this string and iOS only offers an update when it actually increases —
     # 1.0.0 reads as equal to 1.0, so testers never saw an update prompt.
     MARKETING_VERSION: "1.2.0"
-    CURRENT_PROJECT_VERSION: "1"
+    CURRENT_PROJECT_VERSION: "388"
     VERSIONING_SYSTEM: apple-generic
     SWIFT_VERSION: "5.0"
     # iOS 17 and up. Built against the iOS 26 SDK (the CI toolchain is pinned

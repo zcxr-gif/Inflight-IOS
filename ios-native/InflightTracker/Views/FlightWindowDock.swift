@@ -75,6 +75,9 @@ struct FlightWindowDock<Content: View>: View {
     /// lowered it. See `FlightWindowTravel`.
     var travel: FlightWindowTravel? = nil
 
+    /// What the grabber says it does, for a window that is not a flight's.
+    var closeLabel: String = "Close the flight window"
+
     @ViewBuilder let content: Content
 
     /// How far the finger has carried the window, downwards positive. Let go
@@ -147,6 +150,9 @@ struct FlightWindowDock<Content: View>: View {
                     .allowsHitTesting(false)
             }
             .overlay(alignment: .top) { grabber }
+            // Out of the dock's island when it opens, and back into it when
+            // it closes — see `WindowBirth`.
+            .bornFromDock(theme: theme, topRadius: BottomEdge.cornerRadius, bottomRadius: 0)
             .shadow(color: .black.opacity(0.22), radius: 18, y: -2)
             // The whole window is the thing to pull at its peek, which does not
             // scroll. Open, the window is a scroll view, and a pull anywhere on
@@ -168,7 +174,7 @@ struct FlightWindowDock<Content: View>: View {
             // closing the window on it would be a surprise.
             .onTapGesture { onClose() }
             .accessibilityElement()
-            .accessibilityLabel("Close the flight window")
+            .accessibilityLabel(L(closeLabel))
             .accessibilityAddTraits(.isButton)
             .accessibilityAction { onClose() }
             .accessibilityAction(named: isExpanded ? "Show less" : "Open the full window") {

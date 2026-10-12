@@ -177,6 +177,15 @@ struct TrackerMapView: UIViewRepresentable {
     /// close enough for them to be read.
     var showsFieldConditions = true
 
+    /// Whether each field's weather is drawn — its badge, and close in, the
+    /// rain or snow itself. See `FieldWeather`.
+    var showsFieldWeather = true
+
+    /// The weather falling where the map is looking, whenever that changes —
+    /// for the lightning and the haze, which are drawn over the map rather
+    /// than by it. Nil when nothing is falling or the map is too far out.
+    var onLocalWeather: (FieldWeather.Local?) -> Void = { _ in }
+
     /// Observed so a layout that arrives from the network after the map has
     /// settled is drawn when it lands.
     @ObservedObject var layouts = AirportLayoutStore.shared
@@ -435,6 +444,8 @@ struct TrackerMapView: UIViewRepresentable {
             trafficInSource.removeAll()
             syncedTrafficRevision = nil
             renderedAirportKey = nil
+            renderedPrecipitationKey = nil
+            appliedPrecipitation = nil
             renderedRouteKey = nil
             renderedMeasureKey = nil
             terminatorDrawnAt = nil
@@ -470,6 +481,7 @@ struct TrackerMapView: UIViewRepresentable {
             applyHighlighting(parent.highlighting)
             syncTrafficIfNeeded()
             syncAirports(on: map)
+            syncPrecipitation(on: map)
             applySelectionFilters(force: false)
             applyAirPathLayers()
             syncRoute(on: map)
@@ -516,17 +528,31 @@ struct TrackerMapView: UIViewRepresentable {
             options.attributionButton.position = .bottomLeading
             // Past the logo, which is about ninety points of wordmark.
             options.attributionButton.margins = CGPoint(x: x + 92, y: y)
-            mapView.ornaments.options = options
 
-            // The new constraints are in; laying them out inside a spring is
-            // what carries the logo up with the window instead of cutting it
+            // The first placement has nowhere to come from, and somebody who
+            // has asked for less movement gets the logo put straight there.
+            // Either way the layout is left to UIKit's own pass.
+            guard !isFirst, !UIAccessibility.isReduceMotionEnabled else {
+                mapView.ornaments.options = options
+                return
+            }
+
+            // Otherwise it glides: the new constraints laid out inside a
+            // spring carry the logo up with the window instead of cutting it
             // there. The same response as `Motion.chrome`, which is what the
             // window itself and the corner controls move on, so the three
-            // travel as one. Not on the first placement, which has nowhere to
-            // come from, and not for somebody who has asked for less movement.
-            guard !isFirst, !UIAccessibility.isReduceMotionEnabled else { return }
-            UIView.animate(springDuration: 0.36, bounce: 0, options: [.beginFromCurrentState, .allowUserInteraction]) {
-                mapView.layoutIfNeeded()
+            // travel as one.
+            //
+            // On the next turn of the run loop rather than here. This is
+            // called from `updateUIView`, inside SwiftUI's own update, and
+            // forcing a layout from there reaches back up into the hosting
+            // view while SwiftUI is still in the middle of it.
+            DispatchQueue.main.async { [weak mapView] in
+                guard let mapView else { return }
+                mapView.ornaments.options = options
+                UIView.animate(springDuration: 0.36, bounce: 0, options: [.beginFromCurrentState, .allowUserInteraction]) {
+                    mapView.layoutIfNeeded()
+                }
             }
         }
 
@@ -715,6 +741,24 @@ struct TrackerMapView: UIViewRepresentable {
 
         private static func fieldImage(isControlled: Bool) -> String {
             isControlled ? "field|large" : "field|small"
+        }
+
+        /// A field's pin, with its weather on its shoulder when the report has
+        /// any — see `FieldWeather`. One image per pin and kind of weather,
+        /// made the first time it is wanted; the plain pin otherwise.
+        private func fieldImage(isControlled: Bool, weather report: Metar?) -> String {
+            let plain = Self.fieldImage(isControlled: isControlled)
+            guard let report, let kind = FieldWeather.kind(of: report) else { return plain }
+
+            let id = plain + "|" + FieldWeather.key(kind, report.intensity)
+            if !images.contains(id) {
+                let key = AirportMarker.spriteKey(isControlled: isControlled)
+                guard let pin = PlaneSprites.shared.rawIcon(forKey: key, pointSize: AirportMarker.glyph) else {
+                    return plain
+                }
+                addImage(FieldWeather.pin(pin, with: kind, report.intensity), id: id)
+            }
+            return images.contains(id) ? id : plain
         }
 
         /// The sprite for one aeroplane: its airframe, in its body colour —
@@ -939,6 +983,7 @@ struct TrackerMapView: UIViewRepresentable {
                 }
                 guard self.isStyleLoaded else { return }
                 self.syncAirports(on: map)
+                self.syncPrecipitation(on: map)
                 self.syncGround(on: map)
                 self.syncWinds(on: map)
                 self.syncWeatherTiles(on: map)
@@ -1537,6 +1582,28 @@ struct TrackerMapView: UIViewRepresentable {
             }
 
             let box = CGRect(x: point.x - 22, y: point.y - 22, width: 44, height: 44)
+
+            // A field's pin is drawn over the traffic, so a tap squarely on
+            // one is a tap on the field, whatever is standing under it. Only
+            // squarely: a tap near a pin still goes to the nearest aeroplane,
+            // as it always has.
+            let pin = CGRect(x: point.x - 8, y: point.y - 8, width: 16, height: 16)
+            let pinQuery = RenderedQueryOptions(layerIds: MapLayerStyle.tappableFields, filter: nil)
+            _ = map.queryRenderedFeatures(with: pin, options: pinQuery) { [weak self] result in
+                DispatchQueue.main.async {
+                    guard let self = self else { return }
+                    let hits = (try? result.get()) ?? []
+                    if !self.parent.measurement.isOn, let icao = self.nearest(hits, to: point, property: "icao") {
+                        self.parent.onSelectAirport(icao)
+                        return
+                    }
+                    self.handleTrafficTap(at: point, box: box, coordinate: coordinate)
+                }
+            }
+        }
+
+        private func handleTrafficTap(at point: CGPoint, box: CGRect, coordinate: CLLocationCoordinate2D) {
+            guard let map = map else { return }
             let trafficQuery = RenderedQueryOptions(layerIds: MapLayerStyle.tappableTraffic, filter: nil)
 
             _ = map.queryRenderedFeatures(with: box, options: trafficQuery) { [weak self] result in
@@ -1604,6 +1671,7 @@ struct TrackerMapView: UIViewRepresentable {
         private struct AirportSyncKey: Equatable {
             let revision: Int
             let conditions: Bool
+            let fieldWeather: Bool
             let weather: Int
             let windUnit: String
             let temperatureUnit: String
@@ -1655,6 +1723,7 @@ struct TrackerMapView: UIViewRepresentable {
             let key = AirportSyncKey(
                 revision: parent.airportsRevision,
                 conditions: conditions,
+                fieldWeather: parent.showsFieldWeather,
                 weather: WeatherService.shared.generation,
                 windUnit: preferences.windUnit.rawValue,
                 temperatureUnit: preferences.temperatureUnit.rawValue,
@@ -1683,7 +1752,10 @@ struct TrackerMapView: UIViewRepresentable {
 
                 features.append(Self.pointFeature(coordinate, id: airport.icao, [
                     "icao": .string(airport.icao),
-                    "icon": .string(Self.fieldImage(isControlled: field.isControlled)),
+                    "icon": .string(fieldImage(
+                        isControlled: field.isControlled,
+                        weather: parent.showsFieldWeather ? report : nil
+                    )),
                     "category": .string(category),
                     "conditions": .string(line.isEmpty ? "" : "\n" + line),
                     // A staffed field is the one you would go looking for, so
@@ -1694,8 +1766,12 @@ struct TrackerMapView: UIViewRepresentable {
             }
 
             // The reports behind the colours, for the fields being looked at
-            // and no others.
-            WeatherService.shared.prefetch(nearby)
+            // and no others — and only once the fields are drawn at all. Every
+            // field with traffic inbound is in this list, and over a whole
+            // continent "near the screen" would be hundreds of them.
+            if zoom >= MapLayerStyle.fieldMinZoom - 0.5 {
+                WeatherService.shared.prefetch(nearby)
+            }
 
             push(features, to: Source.fields)
         }
@@ -1709,6 +1785,110 @@ struct TrackerMapView: UIViewRepresentable {
         private static func longitudeDelta(_ lhs: Double, _ rhs: Double) -> Double {
             let delta = abs(lhs - rhs).truncatingRemainder(dividingBy: 360)
             return delta > 180 ? 360 - delta : delta
+        }
+
+        // MARK: Weather falling on the map
+
+        /// What the last lookup was asked with, so a redraw that has not moved
+        /// the map or brought a report in costs one string comparison.
+        private var renderedPrecipitationKey: String?
+
+        /// What is falling on the map now, as drawn.
+        private var appliedPrecipitation: String?
+
+        /// Rain or snow over the map, close in over a field where it is
+        /// raining or snowing — Mapbox's own particles, at the strength the
+        /// report gives and leaning with its wind. See `FieldWeather.local`.
+        private func syncPrecipitation(on map: MapboxMap) {
+            // Asked again on the settle; nothing about the weather is worth
+            // a lookup under a moving finger.
+            guard !isRegionChanging, let region = region, region.isUsable else { return }
+
+            let isOn = parent.showsFieldWeather
+                && !UIAccessibility.isReduceMotionEnabled
+                && zoom >= FieldWeather.localMinZoom
+            // A cell of about two kilometres: the nearest field does not
+            // change inside one, and a report landing moves the generation.
+            let lookup = isOn
+                ? String(
+                    format: "%.2f|%.2f|%d",
+                    region.center.latitude, region.center.longitude,
+                    WeatherService.shared.generation
+                )
+                : "off"
+            guard lookup != renderedPrecipitationKey else { return }
+            renderedPrecipitationKey = lookup
+
+            let local = isOn ? FieldWeather.local(at: region.center) : nil
+            let key = local?.key ?? "none"
+            guard key != appliedPrecipitation else { return }
+            appliedPrecipitation = key
+
+            apply(local, on: map)
+            let report = parent.onLocalWeather
+            DispatchQueue.main.async { report(local) }
+        }
+
+        private func apply(_ local: FieldWeather.Local?, on map: MapboxMap) {
+            // Whatever was falling stops first; at most one of the two is on.
+            try? map.removeRain()
+            try? map.removeSnow()
+            guard let local else { return }
+
+            // Rises in as the map comes in, rather than switching on at a zoom.
+            func ramp(_ peak: Double) -> Value<Double> {
+                .expression(Exp(.interpolate) {
+                    Exp(.linear)
+                    Exp(.zoom)
+                    FieldWeather.localMinZoom
+                    0.0
+                    FieldWeather.localMinZoom + 2
+                    peak
+                })
+            }
+
+            let strength: Double
+            switch local.intensity {
+            case .light: strength = 0.45
+            case .moderate: strength = 0.7
+            case .heavy: strength = 1
+            }
+
+            // The wind leans it: a calm field rains straight down, a gale
+            // nearly sideways.
+            let lean = min(Double(local.windKnots ?? 0) * 1.6, 50)
+            let azimuth = Double(local.windFromDegrees ?? 0)
+
+            switch local.kind {
+            case .rain, .drizzle, .thunderstorm:
+                var rain = Rain()
+                let isDrizzle = local.kind == .drizzle
+                let isStorm = local.kind == .thunderstorm
+                rain.density = ramp(isStorm ? 0.95 : (isDrizzle ? 0.45 : 0.85 * strength))
+                rain.intensity = .constant(isStorm ? 1 : (isDrizzle ? 0.45 : 0.6 + 0.4 * strength))
+                rain.dropletSize = .constant(isDrizzle ? [1.4, 8] : (isStorm ? [3, 22] : [2.6, 18.2]))
+                rain.direction = .constant([azimuth, lean])
+                rain.opacity = .constant(isStorm ? 0.8 : 0.7)
+                if isStorm {
+                    rain.color = .constant(StyleColor(UIColor(red: 0.55, green: 0.6, blue: 0.72, alpha: 1)))
+                    rain.vignette = ramp(0.45)
+                    rain.vignetteColor = .constant(StyleColor(UIColor(red: 0.05, green: 0.07, blue: 0.14, alpha: 1)))
+                }
+                do { try map.setRain(rain) } catch { NSLog("[Map] rain: %@", String(describing: error)) }
+
+            case .snow:
+                var snow = Snow()
+                snow.density = ramp(0.9 * strength + 0.1)
+                snow.intensity = .constant(0.5 + 0.5 * strength)
+                snow.flakeSize = .constant(local.intensity == .heavy ? 1.1 : 0.8)
+                snow.direction = .constant([azimuth, min(lean, 40)])
+                do { try map.setSnow(snow) } catch { NSLog("[Map] snow: %@", String(describing: error)) }
+
+            case .fog:
+                // Nothing falls in fog. The haze is drawn over the map instead
+                // — see `onLocalWeather`.
+                break
+            }
         }
 
         // MARK: Route

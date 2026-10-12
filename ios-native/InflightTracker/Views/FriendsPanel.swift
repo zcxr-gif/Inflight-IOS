@@ -153,9 +153,6 @@ struct FriendsPanel: View {
             notificationsSection.panelEntrance(5)
 
             if !friends.friends.isEmpty { widgetSection.panelEntrance(6) }
-
-            HintStrip(placement: .friends)
-                .panelEntrance(7)
         }
         .task { await refreshFlyingNow() }
         .sheet(isPresented: $isShowingPaywall) { ProPanel(highlighted: .watchlist) }

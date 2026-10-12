@@ -593,7 +593,7 @@
 "Looking for Infinite Flight on this network…" = "正在此网络中查找 Infinite Flight…";
 "MATERIAL" = "材质";
 "MOVEMENT" = "动态";
-"Marks fields with somebody on frequency, and the busiest of the rest. Tap one to open it." = "标记有人在线管制的机场，以及其余最繁忙的机场。轻点即可打开。";
+"Marks every field with traffic inbound in white, and in green where ATC is on frequency, once the map is zoomed in close. Tap one to open it." = "在地图放大到足够近时，用白色标出每个有进港航班的机场，有 ATC 在频率上的机场用绿色标出。点按即可打开。";
 "Mint aeroplanes" = "薄荷绿飞机";
 "Missing" = "缺失";
 "NAVIGATION DISPLAY" = "导航显示器";
@@ -1708,3 +1708,6 @@
 "The planet has colours of its own, below." = "星球有自己的配色，见下方。";
 "Satellite imagery has nothing to edit. Pick a drawn map to customise it." = "卫星影像没有可编辑的内容。选择绘制的地图即可自定义。";
 "The globe takes the light, the names and the borders." = "地球可调整光照、名称和边界。";
+
+"Weather at fields" = "机场天气";
+"Marks every field where it is raining, snowing, storming or foggy, and zoomed in over one, the rain or snow falls on the map, with lightning in a storm and haze in fog. From the same reports, so it costs nothing." = "标出正在下雨、下雪、雷暴或有雾的每个机场；放大到某个机场附近时，雨或雪会落在地图上，雷暴时有闪电，雾中有薄雾。来自同样的报文，不产生额外请求。";

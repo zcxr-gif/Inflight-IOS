@@ -195,6 +195,15 @@ struct WeatherSettingsPanel: View {
                 PanelDivider()
 
                 PanelToggleRow(
+                    title: "Weather at fields",
+                    symbol: "cloud.rain.fill",
+                    detail: "Marks every field where it is raining, snowing, storming or foggy, and zoomed in over one, the rain or snow falls on the map, with lightning in a storm and haze in fog. From the same reports, so it costs nothing.",
+                    isOn: $preferences.showsFieldWeather
+                )
+
+                PanelDivider()
+
+                PanelToggleRow(
                     title: "Weather chip",
                     symbol: "cloud.sun.fill",
                     detail: "The pill top left while an aircraft is open, reporting the field it is passing.",
@@ -221,8 +230,6 @@ struct WeatherSettingsPanel: View {
                     isOn: $preferences.showsOutlook
                 )
             }
-
-            HintStrip(placement: .weather)
 
             Text("Reports come from VATSIM's METAR service, the same source the tracker has always used, and each station issues one an hour. Where a field files none — which is most of the world's airfields — the reading is Open-Meteo's model, and says so; the same request carries the forecast and the outlook, and the sun and moon times are worked out on the device. Severe-weather warnings come from the National Weather Service, which covers the United States and nowhere else. The radar tiles are RainViewer's; the satellite imagery is from NASA's Global Imagery Browse Services, part of their Earth Science Data and Information System; the winds aloft are Open-Meteo's too. None of it costs anything to use.")
                 .font(.system(size: 10.5, weight: .medium))

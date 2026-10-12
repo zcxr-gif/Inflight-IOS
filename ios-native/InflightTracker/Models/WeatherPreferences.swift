@@ -76,6 +76,7 @@ final class WeatherPreferences: ObservableObject {
     private static let particlesKey = "weather.windParticles"
     private static let heatKey = "weather.windHeat"
     private static let fieldsKey = "weather.showsFieldConditions"
+    private static let fieldWeatherKey = "weather.showsFieldWeather"
     private static let outlookKey = "weather.showsOutlook"
 
     @Published var temperatureUnit: TemperatureUnit {
@@ -153,6 +154,17 @@ final class WeatherPreferences: ObservableObject {
         didSet { UserDefaults.standard.set(showsFieldConditions, forKey: Self.fieldsKey) }
     }
 
+    /// Whether the weather at each field is drawn as weather: a badge on the
+    /// field's pin when it is raining, snowing, storming or foggy there, and —
+    /// close in over that field — the rain or snow itself falling on the map,
+    /// a lightning flash in a thunderstorm and a haze in fog.
+    ///
+    /// Free, like the conditions line: the same reports, drawn rather than
+    /// written. On by default.
+    @Published var showsFieldWeather: Bool {
+        didSet { UserDefaults.standard.set(showsFieldWeather, forKey: Self.fieldWeatherKey) }
+    }
+
     /// Whether an airport's panel carries the ten-day outlook and the sun and
     /// moon times under its forecast.
     ///
@@ -189,6 +201,7 @@ final class WeatherPreferences: ObservableObject {
         // On by default, because it costs nothing and it is the one piece of
         // weather that is already on the device.
         showsFieldConditions = defaults.object(forKey: Self.fieldsKey) as? Bool ?? true
+        showsFieldWeather = defaults.object(forKey: Self.fieldWeatherKey) as? Bool ?? true
         // On by default: it costs no request, and it is the part of a field's
         // weather nothing else in the app can tell you.
         showsOutlook = defaults.object(forKey: Self.outlookKey) as? Bool ?? true
