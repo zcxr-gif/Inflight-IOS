@@ -73,8 +73,11 @@ generates it on every build:
 3. Swift packages resolve, build number is set from `$BUILD_NUMBER`
 4. Codemagic's App Store Connect integration signs it, and the IPA is submitted to TestFlight
 
-Push to any branch to trigger it. Bundle identifier is `com.tracker.Inflight`, the
-same one the old build used, so signing and the TestFlight app record work as-is.
+Push to any branch to trigger it, new branches included. A push that changes
+nothing under `ios-native/` (the UI probe, GitHub workflows, docs) is skipped, and a
+newer push to a branch cancels that branch's queued build. Bundle identifier is
+`com.tracker.Inflight`, the same one the old build used, so signing and the
+TestFlight app record work as-is.
 
 To change project settings — deployment target, capabilities, dependencies, build
 settings — edit `ios-native/project.yml`. It is plain YAML and needs no Mac.

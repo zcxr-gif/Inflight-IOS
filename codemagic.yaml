@@ -49,10 +49,28 @@ workflows:
     triggering:
       events:
         - push
+      # A push supersedes whatever is still queued or running for the same
+      # branch, so a run of quick pushes builds once, from the newest commit,
+      # instead of each one waiting its turn behind the last.
+      cancel_previous_builds: true
       branch_patterns:
         - pattern: '*'
           include: true
           source: true
+
+    # Every branch builds, new ones included, but only when something that goes
+    # into the app changed. Everything the build reads lives in ios-native/
+    # (and this file, which Codemagic always counts as changed). A push that
+    # touches only the UI probe, its results, the GitHub workflows or docs has
+    # nothing to ship, and before this each one still queued a signed build
+    # and a TestFlight upload, which is what held real builds up for hours.
+    # The changeset is measured against the branch's last successful build.
+    when:
+      changeset:
+        includes:
+          - 'ios-native/'
+        excludes:
+          - '**/*.md'
 
     scripts:
       - name: Install XcodeGen
