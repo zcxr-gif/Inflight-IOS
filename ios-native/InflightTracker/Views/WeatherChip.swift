@@ -70,52 +70,17 @@ struct WeatherChip: View {
 
     private func summary(for station: WeatherModel.Station) -> some View {
         let temperature = station.temperatureLabel(forecast: forecast, unit: preferences.temperatureUnit)
-        let detail = station.detail(forecast: forecast, windUnit: preferences.windUnit)
 
-        return HStack(spacing: 9) {
-            Image(systemName: station.symbol(forecast: forecast))
-                .symbolRenderingMode(.hierarchical)
-                .font(.system(size: 17))
-                .foregroundStyle(theme.textPrimary)
-                .frame(width: 22)
-
-            Text(L(temperature))
-                .font(.system(size: 19, weight: .bold, design: .rounded))
-                .foregroundStyle(theme.textPrimary)
-                .fixedSize()
-                .motionWords(temperature)
-
-            VStack(alignment: .leading, spacing: 1) {
-                HStack(spacing: 4) {
-                    Text(L(station.airport.icao))
-                        .font(.system(size: 11, weight: .bold))
-                        .foregroundStyle(theme.textSecondary)
-                        .motionWords(station.airport.icao)
-
-                    // Beside the code, because the code is what the reader is
-                    // matching the temperature to. A forecast and an observation
-                    // are different claims about the same field, and which one
-                    // this is belongs next to the field rather than in a
-                    // footnote.
-                    if station.modelled(forecast) != nil {
-                        ForecastSourceMark(colour: theme.textDim)
-                    }
-                }
-
-                Text(L(detail))
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(theme.textDim)
-                    .flightInfoLine(minimumScale: 0.8)
-                    .motionWords(detail)
-            }
-            .frame(maxWidth: 118, alignment: .leading)
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        // One control, so it gets the system's press response: the glass bends
-        // towards the finger and the light on it moves.
-        .flightInfoChrome(theme, in: Capsule(), interactive: true)
-        .contentShape(Capsule())
+        // The same readout as the map's own pill: the field's code where the
+        // map's has the air quality, and its wind after it.
+        return WeatherReadout(
+            theme: theme,
+            symbol: station.symbol(forecast: forecast),
+            temperature: temperature,
+            tag: station.airport.icao,
+            detail: station.compactWind(forecast: forecast, windUnit: preferences.windUnit),
+            isModelled: station.modelled(forecast) != nil
+        )
     }
 }
 
@@ -159,6 +124,23 @@ extension WeatherModel.Station {
     func conditionLabel(forecast: ForecastService) -> String? {
         if let metar { return metar.conditionLabel }
         return modelled(forecast)?.label
+    }
+
+    /// The wind as a readout writes it — `240°/12kt`, `240°/12G20kt`, `CALM`
+    /// — from whichever source answered, or nil where neither did.
+    func compactWind(forecast: ForecastService, windUnit: WindUnit) -> String? {
+        let label: String
+        if let metar {
+            label = metar.windLabel(in: windUnit)
+        } else if let modelled = modelled(forecast) {
+            label = modelled.windLabel(in: windUnit)
+        } else {
+            return nil
+        }
+        if label == "Calm" { return "CALM" }
+        return label
+            .replacingOccurrences(of: " @ ", with: "/")
+            .replacingOccurrences(of: " ", with: "")
     }
 
     /// The line under the code: conditions and wind from whichever source
