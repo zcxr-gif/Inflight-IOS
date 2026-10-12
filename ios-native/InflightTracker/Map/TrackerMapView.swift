@@ -396,7 +396,8 @@ struct TrackerMapView: UIViewRepresentable {
             cancelables.removeAll()
             VaMarkStore.shared.stopObservingMarks(self)
             AircraftModelStore.shared.stopObserving(self)
-            pendingSettle?.cancel()
+            settleGeneration &+= 1
+            isSettleArmed = false
             isTouchingMap = false
         }
 
@@ -913,8 +914,38 @@ struct TrackerMapView: UIViewRepresentable {
         /// Whether the camera is being moved right now — a finger on the map,
         /// or an animated move that has not landed. The layers that are a
         /// function of the region stand off until it stops.
+        ///
+        /// Not the follow. A followed aeroplane moves the camera on every
+        /// frame for as long as it flies, and counted as movement that kept
+        /// this true for the whole follow: the radar stood still, and the
+        /// pavement of the field the aeroplane was landing at never drew. See
+        /// `isFollowDrivingCamera`.
         private var isRegionChanging = false
-        private var pendingSettle: DispatchWorkItem?
+
+        /// When the settle is due: `settleDelay` after the last camera change.
+        /// Each change pushes this back rather than cancelling one timer and
+        /// starting another — a gesture is a hundred and twenty changes a
+        /// second, and each of those used to be a work item made, queued and
+        /// thrown away. One timer is armed at a time, and when it fires early
+        /// it waits out the rest. See `scheduleSettle`.
+        private var settleDeadline: CFTimeInterval = 0
+        private var isSettleArmed = false
+
+        /// Moved on by `detach`, so a timer already armed lands on nothing.
+        private var settleGeneration = 0
+
+        private static let settleDelay: CFTimeInterval = 0.15
+
+        /// When the layers that are a function of the region last caught up
+        /// with a follow, and how often they do.
+        private var followCaughtUpAt: CFTimeInterval = 0
+        private static let followCatchUpInterval: CFTimeInterval = 1
+
+        /// The visible map as of the last camera change, and the size of view
+        /// it was measured in — what `visibleMercatorRect` answers from rather
+        /// than asking Mapbox again.
+        private var cameraBounds: CoordinateBounds?
+        private var cameraBoundsSize: CGSize = .zero
 
         /// Whether a finger is on the map right now.
         ///
@@ -940,6 +971,8 @@ struct TrackerMapView: UIViewRepresentable {
             pointsPerMetre = 512 * pow(2, zoom) / circumference
 
             let visible = map.coordinateBounds(for: bounds)
+            cameraBounds = visible
+            cameraBoundsSize = bounds.size
             var west = visible.west
             var east = visible.east
             if east < west { east += 360 }
@@ -967,7 +1000,15 @@ struct TrackerMapView: UIViewRepresentable {
             // The moving air is told where the camera is on every change: it
             // sets where new particles are born and how fast the clock runs.
             if let particles = particles {
-                particles.look(at: visibleMercatorRect(), latitude: latitude)
+                particles.look(at: Self.mercatorRect(of: visible), latitude: latitude)
+            }
+
+            // The follow carrying the camera along with its aeroplane is not
+            // somebody moving the map, and nothing waits for it to stop — it
+            // never does. The region's layers keep up with it instead.
+            if isFollowDrivingCamera {
+                catchUpWithFollow()
+                return
             }
 
             if !isRegionChanging {
@@ -975,6 +1016,35 @@ struct TrackerMapView: UIViewRepresentable {
                 parent.onCameraMoving(true)
             }
             scheduleSettle()
+        }
+
+        /// Whether the camera is being moved by the follow alone: locked on,
+        /// past the glide onto the aeroplane, and with no finger on the map
+        /// and no pinch or turn being stood back for. Any of those, and the
+        /// change is somebody's and waits for the settle like any other.
+        private var isFollowDrivingCamera: Bool {
+            parent.isFollowing && followLockedId != nil
+                && !isTouchingMap && !isGestureActive
+                && CACurrentMediaTime() >= followGlideEnds
+        }
+
+        /// Lets the layers that are a function of the region — the fields, the
+        /// pavement, the winds, the weather — catch up with a follow, at most
+        /// once a second. A settle still owed to whatever moved the camera
+        /// before the follow took it, the glide onto the aeroplane most of all,
+        /// does this itself when it lands.
+        private func catchUpWithFollow() {
+            guard !isRegionChanging else { return }
+            let now = CACurrentMediaTime()
+            guard now - followCaughtUpAt >= Self.followCatchUpInterval else { return }
+            followCaughtUpAt = now
+            // Off this pass: the follow moves the camera from inside the frame
+            // clock and the update pass, and neither is the place to rewrite
+            // every field on the map.
+            DispatchQueue.main.async { [weak self] in
+                guard let self, !self.isRegionChanging, !self.isTouchingMap else { return }
+                self.syncRegionLayers()
+            }
         }
 
         /// The bearing last told to the compass, to the degree.
@@ -996,37 +1066,69 @@ struct TrackerMapView: UIViewRepresentable {
         /// Everything that waits for the map to stop moving, coalesced so a
         /// gesture made of a hundred camera changes runs it once, at the end.
         private func scheduleSettle() {
-            pendingSettle?.cancel()
+            settleDeadline = CACurrentMediaTime() + Self.settleDelay
+            guard !isSettleArmed else { return }
+            isSettleArmed = true
+            armSettle(after: Self.settleDelay)
+        }
 
-            let work = DispatchWorkItem { [weak self] in
-                guard let self = self, let map = self.map else { return }
-                // The lift schedules this again.
-                guard !self.isTouchingMap else { return }
-                if self.isRegionChanging {
-                    self.isRegionChanging = false
-                    self.parent.onCameraMoving(false)
+        /// One timer, which on firing either settles or, when the camera has
+        /// moved since it was armed, waits out what is left of the delay.
+        private func armSettle(after delay: CFTimeInterval) {
+            let generation = settleGeneration
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                guard let self, self.settleGeneration == generation else { return }
+                let remaining = self.settleDeadline - CACurrentMediaTime()
+                if remaining > 0.001 {
+                    self.armSettle(after: remaining)
+                    return
                 }
-                guard self.isStyleLoaded else { return }
-                self.syncAirports(on: map)
-                self.syncPrecipitation(on: map)
-                self.syncGround(on: map)
-                self.syncWinds(on: map)
-                self.syncWeatherTiles(on: map)
-
-                if let region = self.region, region.isUsable {
-                    self.parent.onRegionSettled(region.center, region.span.latitudeDelta)
-                }
+                self.isSettleArmed = false
+                self.settle()
             }
+        }
 
-            pendingSettle = work
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15, execute: work)
+        private func settle() {
+            guard map != nil else { return }
+            // The lift schedules this again.
+            guard !isTouchingMap else { return }
+            if isRegionChanging {
+                isRegionChanging = false
+                parent.onCameraMoving(false)
+            }
+            syncRegionLayers()
+        }
+
+        /// The layers that are a function of where the map is looking, brought
+        /// up to date — on the settle, and through a follow.
+        private func syncRegionLayers() {
+            guard isStyleLoaded, let map = map else { return }
+            syncAirports(on: map)
+            syncPrecipitation(on: map)
+            syncGround(on: map)
+            syncWinds(on: map)
+            syncWeatherTiles(on: map)
+
+            if let region = region, region.isUsable {
+                parent.onRegionSettled(region.center, region.span.latitudeDelta)
+            }
         }
 
         /// The visible map as a Mercator rectangle, with its east edge carried
         /// past the antimeridian when the view straddles it.
+        ///
+        /// From the last camera change when there has been one for a view of
+        /// this size: nothing about what is visible moves between them, and
+        /// the moving air asks for this twenty-four times a second.
         private func visibleMercatorRect() -> MercatorRect {
             guard let mapView = mapView, let map = map else { return .null }
-            let visible = map.coordinateBounds(for: mapView.bounds)
+            if let visible = cameraBounds, cameraBoundsSize == mapView.bounds.size {
+                return Self.mercatorRect(of: visible)
+            }
+            return Self.mercatorRect(of: map.coordinateBounds(for: mapView.bounds))
+        }
+
+        private static func mercatorRect(of visible: CoordinateBounds) -> MercatorRect {
             let topLeft = MercatorPoint(CLLocationCoordinate2D(latitude: visible.north, longitude: visible.west))
             var bottomRight = MercatorPoint(CLLocationCoordinate2D(latitude: visible.south, longitude: visible.east))
             if bottomRight.x < topLeft.x { bottomRight.x += MercatorRect.worldSide }
@@ -1317,12 +1419,24 @@ struct TrackerMapView: UIViewRepresentable {
                 || heading != marker.drawnHeading
         }
 
+        /// One aeroplane's feature, as it is drawn now.
+        ///
+        /// The heading is written into the stored properties in place rather
+        /// than into a copy of them. A copy was a fresh dictionary per feature
+        /// — every aeroplane that moved on every frame, and the whole server
+        /// on a packet — to add one number to it. In place, the feature shares
+        /// the stored one; the only copy left is when Mapbox is still holding
+        /// the last write of the same aeroplane, which it hands back within
+        /// the frame. A missing entry stays missing, so `pushTraffic` still
+        /// sees an aeroplane whose properties need building.
         private func trafficFeature(for marker: FlightMarker) -> Feature {
-            var properties = trafficProperties[marker.flightId] ?? [:]
-            properties["heading"] = JSONValue.number(marker.drawnHeading)
+            let id = marker.flightId
+            let heading = marker.drawnHeading
+            let value = JSONValue.number(heading)
+            trafficProperties[id]?["heading"] = value
             marker.writtenCoordinate = marker.coordinate
-            marker.writtenHeading = marker.drawnHeading
-            return Self.pointFeature(marker.coordinate, id: marker.flightId, properties)
+            marker.writtenHeading = heading
+            return Self.pointFeature(marker.coordinate, id: id, trafficProperties[id] ?? ["heading": value])
         }
 
         /// Everything an aeroplane's feature says about it but its position.
@@ -3316,23 +3430,30 @@ struct TrackerMapView: UIViewRepresentable {
             var flying = 0
             var changed: [Feature] = []
 
-            for marker in markers.values {
-                // Cheapest first: is it on screen, is it to be carried at all,
-                // and is it moving.
-                let inView = isInSmoothingBox(marker.coordinate)
+            // The aircraft the camera is following is always carried, so the
+            // camera has a smooth path to move along. Read once a frame rather
+            // than once an aeroplane: the selection is a binding.
+            let followedId = parent.isFollowing ? parent.selection?.id : nil
 
-                let flight = marker.flight
-                let required = flight.requiresSmoothing
-                // The aircraft the camera is following is always carried, so
-                // the camera has a smooth path to move along.
-                let followed = parent.isFollowing && flight.id == parent.selection?.id
+            for marker in markers.values {
+                // Cheapest first: is it on screen, and is it being carried.
+                // One that is neither — most of the server, once the map is in
+                // close — has nothing to do this frame, and is let go before
+                // anything else about it is read. The flight is a dozen
+                // strings, and copying it out for every aeroplane on every
+                // frame was most of what this loop cost.
+                let inView = isInSmoothingBox(marker.coordinate)
+                let was = marker.isSmoothing
+                guard inView || was else { continue }
+
                 // Every moving aeroplane on screen, however slowly it crosses
                 // it: one left on its packets hops, and one that started or
                 // stopped being carried as the zoom moved past a speed floor
                 // was put back on its last packet — a jump, mid-pinch.
-                let wanted = inView && (smoothing || required || followed) && flight.isWorthSmoothing
+                let wanted = inView
+                    && (smoothing || marker.flight.requiresSmoothing || marker.flightId == followedId)
+                    && marker.flight.isWorthSmoothing
 
-                let was = marker.isSmoothing
                 if wanted != was {
                     if wanted { marker.beginMotion(now: now) } else { marker.endMotion() }
                 }
