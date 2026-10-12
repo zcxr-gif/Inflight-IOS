@@ -135,6 +135,8 @@ jobs:
           mkdir -p /tmp/out/$NAME
           cp /tmp/probe/*.jpg /tmp/probe/*.txt /tmp/out/$NAME/ 2>/dev/null || true
           rm -f /tmp/out/$NAME/app-log.txt
+          grep -E "error|failed|Failed|Test Case|PROBE|XCTAssert|crash|Assertion|t = " /tmp/probe/build.log | cut -c1-300 | tail -150 > /tmp/out/$NAME/test-output.txt || true
+          ls -la /tmp/probe > /tmp/out/$NAME/probe-dir.txt || true
           grep -vE "xctest|XCTQuery|User Defaults|com.apple.network|EventDispatch" /tmp/probe/app-log.txt | cut -c1-400 | tail -3000 > /tmp/out/$NAME/app-log-trimmed.txt || true
           cd /tmp/out
           git init -q
