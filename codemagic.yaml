@@ -53,11 +53,6 @@ workflows:
         - pattern: '*'
           include: true
           source: true
-        # TEMPORARY, while the UI probe runs on this branch: its commits are
-        # diagnostics and must not ship. Removed with the probe.
-        - pattern: 'claude/3d-buildings'
-          include: false
-          source: true
 
     scripts:
       - name: Install XcodeGen
