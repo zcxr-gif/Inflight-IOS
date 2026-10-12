@@ -1163,11 +1163,17 @@ struct ContentView: View {
                 mapToolbar
             }
             replayBar
-            flightDock
-            airportDock
-            flightPane
-            airportPane
-            mapModes
+            // Raised explicitly, all of them. A ZStack draws a view that is on
+            // its way out at its default level, which put a closing window
+            // behind the map: it was folding back into the bar exactly as it
+            // should, out of sight, and what you saw was the window vanish on
+            // the tap. Opening never showed it, because a view coming in keeps
+            // its place in the stack.
+            flightDock.zIndex(1)
+            airportDock.zIndex(1)
+            flightPane.zIndex(1)
+            airportPane.zIndex(1)
+            mapModes.zIndex(2)
         }
         // What the panes are laid out in, so the map can be told exactly how
         // much of it they cover. See `mapAreaSize`.
