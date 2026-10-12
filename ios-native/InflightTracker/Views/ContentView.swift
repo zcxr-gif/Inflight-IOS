@@ -1240,7 +1240,7 @@ struct ContentView: View {
                 // is the only one that stays neutral.
                 theme: appearance.windowTheme.accented(by: airlineAccent(forFlightId: selected.id)),
                 placement: flightPlacement,
-                onClose: { sheet = nil }
+                onClose: closeWindow
             ) {
                 FlightDetailView(
                     flightId: selected.id,
@@ -1276,7 +1276,7 @@ struct ContentView: View {
                 theme: theme,
                 placement: flightPlacement,
                 closeLabel: "Close the airport panel",
-                onClose: { sheet = nil }
+                onClose: closeWindow
             ) {
                 airportSheet(icao, presentation: .pane)
                     .id(icao)
@@ -1619,7 +1619,7 @@ struct ContentView: View {
                 theme: appearance.windowTheme,
                 peakHeight: peakHeight,
                 isExpanded: $isWindowExpanded,
-                onClose: { sheet = nil },
+                onClose: closeWindow,
                 travel: flightWindowTravel
             ) {
                 FlightDetailView(
@@ -1661,7 +1661,7 @@ struct ContentView: View {
                 theme: theme,
                 peakHeight: AirportPanel.peakHeight,
                 isExpanded: $isAirportExpanded,
-                onClose: { sheet = nil },
+                onClose: closeWindow,
                 closeLabel: "Close the airport panel"
             ) {
                 airportSheet(icao)
@@ -1813,6 +1813,22 @@ struct ContentView: View {
     /// airport — that the place being described was a dot. The traffic on
     /// its way in is a pinch away; the field is what was asked for.
     private static let fieldSpanMeters: Double = 6_000
+
+    /// Shuts whichever window is up, on the spring it opened on.
+    ///
+    /// Both halves of the close in one animated change. It used to be
+    /// `sheet = nil` alone, with the selection cleared a beat later by the
+    /// sheet watcher — and that second change carried no animation, so the
+    /// window was taken off the screen on the frame it was let go of instead
+    /// of folding back into the bar it was born from. Recorded on a slowed
+    /// spring, the window was gone in the first frame after the tap while the
+    /// dock was still fading in under where it had been.
+    private func closeWindow() {
+        withAnimation(reduceMotion ? nil : Motion.chrome) {
+            sheet = nil
+            selection = nil
+        }
+    }
 
     /// Open a field from somewhere with nothing to come back to.
     private func openAirport(_ airport: Airport) {

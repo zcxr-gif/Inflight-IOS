@@ -23,12 +23,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: buildings-forced
-            ref: ''
-            patch: 'forced'
-          - name: buildings-forced-default
-            ref: ''
-            patch: 'forced-default'
           - name: window-motion
             ref: ''
             patch: 'motion'
