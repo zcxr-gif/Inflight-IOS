@@ -23,15 +23,21 @@ final class UIProbe: XCTestCase {
         sleep(10)
         shot("01-map-pill")
 
-        let handle = app.buttons["Show more"]
-        log += "handle \(handle.exists)\n"
-        if handle.exists { handle.tap(); sleep(3) }
-        shot("02-lists")
-        let row = app.buttons.matching(NSPredicate(format: "label CONTAINS 'NM' OR label CONTAINS ' to '")).element(boundBy: 2)
-        log += "row \(row.exists) \(row.exists ? row.label : "")\n"
-        if row.exists { row.tap() }
-        sleep(8)
-        shot("03-flight-chip")
+        try? log.write(to: out.appendingPathComponent("log.txt"), atomically: true, encoding: .utf8)
+        let field = app.textFields.firstMatch
+        log += "field \(field.exists)\n"
+        if field.exists {
+            field.tap()
+            sleep(1)
+            field.typeText("EGLL")
+            sleep(3)
+            shot("02-search")
+            let flight = app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'Airbus' OR label CONTAINS 'Boeing'")).firstMatch
+            log += "flight row \(flight.exists)\n"
+            if flight.exists { flight.tap() }
+            sleep(10)
+            shot("03-flight-chip")
+        }
         try? app.debugDescription.write(to: out.appendingPathComponent("tree.txt"), atomically: true, encoding: .utf8)
     }
 }
