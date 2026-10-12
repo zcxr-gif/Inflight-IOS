@@ -50,20 +50,27 @@ workflows:
       events:
         - push
       # A push supersedes whatever is still queued or running for the same
-      # branch. Without this every push waits its turn behind every earlier
-      # one, and a run of quick pushes (a probe, then its removal) stacked up
-      # hours of signed builds and TestFlight uploads nobody was going to
-      # install, ahead of the one that mattered.
+      # branch, so a run of quick pushes builds once, from the newest commit,
+      # instead of each one waiting its turn behind the last.
       cancel_previous_builds: true
-      # Only main ships. Work branches are checked by the GitHub Actions
-      # compile check (.github/workflows/compile-check.yml), which needs no
-      # signing and runs alongside; building and uploading every one of their
-      # pushes here is what filled the queue. To put a branch on TestFlight
-      # before it merges, start the build by hand from the Codemagic dashboard.
       branch_patterns:
-        - pattern: 'main'
+        - pattern: '*'
           include: true
           source: true
+
+    # Every branch builds, new ones included, but only when something that goes
+    # into the app changed. Everything the build reads lives in ios-native/
+    # (and this file, which Codemagic always counts as changed). A push that
+    # touches only the UI probe, its results, the GitHub workflows or docs has
+    # nothing to ship, and before this each one still queued a signed build
+    # and a TestFlight upload, which is what held real builds up for hours.
+    # The changeset is measured against the branch's last successful build.
+    when:
+      changeset:
+        includes:
+          - 'ios-native/'
+        excludes:
+          - '**/*.md'
 
     scripts:
       - name: Install XcodeGen
