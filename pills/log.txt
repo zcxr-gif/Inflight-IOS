@@ -1,0 +1,3 @@
+field true
+keyboard 1
+flight row true

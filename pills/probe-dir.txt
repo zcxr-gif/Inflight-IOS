@@ -1,0 +1,14 @@
+total 40808
+drwxr-xr-x  13 runner  wheel       416 Oct 12 01:26 .
+drwxrwxrwt  10 root    wheel       320 Oct 12 01:26 ..
+-rw-r--r--   1 runner  wheel     85992 Oct 12 01:26 01-map-pill.jpg
+-rw-r--r--   1 runner  wheel    789709 Oct 12 01:25 01-map-pill.png
+-rw-r--r--   1 runner  wheel    100318 Oct 12 01:26 02-search.jpg
+-rw-r--r--   1 runner  wheel    358054 Oct 12 01:25 02-search.png
+-rw-r--r--   1 runner  wheel    131637 Oct 12 01:26 03-flight-chip.jpg
+-rw-r--r--   1 runner  wheel   1556917 Oct 12 01:26 03-flight-chip.png
+-rw-r--r--   1 runner  wheel  16008943 Oct 12 01:26 app-log.txt
+-rw-r--r--   1 runner  wheel    997346 Oct 12 01:26 build.log
+-rw-r--r--@  1 runner  wheel        38 Oct 12 01:26 log.txt
+drwxr-xr-x   4 runner  wheel       128 Oct 12 01:26 result.xcresult
+-rw-r--r--@  1 runner  wheel      6008 Oct 12 01:26 tree.txt

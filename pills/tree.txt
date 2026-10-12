@@ -1,0 +1,75 @@
+Attributes: Application, 0x1034648d0, pid: 31659, label: 'Inflight'
+Element subtree:
+ →Application, 0x1034648d0, pid: 31659, label: 'Inflight'
+    Window (Main), 0x103464530, {{0.0, 0.0}, {402.0, 874.0}}
+      Other, 0x1034607d0, {{0.0, 0.0}, {402.0, 874.0}}
+        Other, 0x103460e90, {{0.0, 0.0}, {402.0, 874.0}}
+          Other, 0x103464f40, {{0.0, 0.0}, {402.0, 874.0}}
+            Other, 0x103464c00, {{0.0, 0.0}, {402.0, 874.0}}
+              Other, 0x103461fb0, {{0.0, 0.0}, {402.0, 874.0}}
+                Other, 0x103462300, {{0.0, 0.0}, {402.0, 874.0}}
+                Other, 0x1034652a0, {{0.0, 0.0}, {402.0, 874.0}}
+                Button, 0x103463090, {{102.0, 334.7}, {44.0, 44.0}}, label: 'About this map'
+                Other, 0x103465980, {{10.0, 357.7}, {85.0, 21.0}}
+              Button, 0x103461570, {{14.0, 70.0}, {154.3, 29.0}}, label: '3°, EDDF, 210°/3kt'
+                Image, 0x103465600, {{26.0, 78.0}, {12.3, 13.0}}, identifier: 'moon.stars.fill', label: 'Clear Night'
+                StaticText, 0x103465d00, {{45.0, 76.0}, {16.3, 17.0}}, label: '3°'
+                StaticText, 0x103466070, {{74.3, 78.7}, {29.3, 11.7}}, label: 'EDDF'
+                StaticText, 0x1034663f0, {{107.7, 78.5}, {49.7, 12.0}}, label: '210°/3kt'
+              Button, 0x103466780, {{344.0, 70.0}, {44.0, 44.0}}, label: 'Sign in'
+              Button, 0x103466ad0, {{346.0, 178.7}, {40.0, 40.0}}, identifier: 'viewfinder', label: 'Show the whole flight'
+              Button, 0x103466e70, {{346.0, 218.7}, {40.0, 40.0}}, identifier: 'location.fill', label: 'Stop following this aircraft', Selected
+              Button, 0x1034671f0, {{346.0, 258.7}, {40.0, 40.0}}, identifier: 'point.topleft.down.to.point.bottomright.curvepath', label: 'Hide the flown path', Selected
+              Button, 0x103467580, {{346.0, 298.7}, {40.0, 24.0}}, identifier: 'chevron.down', label: 'Hide map controls'
+              Button, 0x1034678e0, {{346.0, 334.7}, {40.0, 40.0}}, label: 'Show 3D aircraft'
+              Other, 0x103467c50, {{0.0, 416.7}, {402.0, 457.3}}
+              CollectionView, 0x103467fc0, {{0.0, 416.7}, {402.0, 225.3}}, label: 'Photo 1 of 2'
+                Cell, 0x1034686c0, {{0.0, 416.7}, {402.0, 225.3}}
+                  Other, 0x103468350, {{0.0, 416.7}, {402.0, 225.3}}
+                    Other, 0x103468db0, {{0.0, 416.7}, {402.0, 225.3}}
+                      Other, 0x103469110, {{0.0, 416.7}, {402.0, 225.3}}
+                        Other, 0x103469460, {{0.0, 416.7}, {402.0, 225.3}}
+                          Image, 0x103468a40, {{0.0, 416.7}, {402.0, 225.3}}
+                Other, 0x10356f1e0, {{369.0, 416.7}, {30.0, 210.0}}, label: 'Vertical scroll bar, 2 pages', value: 0%
+                  Other, 0x103508d70, {{396.0, 419.7}, {3.0, 204.0}}
+                Other, 0x103571570, {{369.0, 416.7}, {30.0, 210.0}}, label: 'Vertical scroll bar, 2 pages', value: 0%
+                  Other, 0x10356d4c0, {{396.0, 419.7}, {3.0, 204.0}}
+              StaticText, 0x103507350, {{20.0, 635.1}, {247.0, 12.7}}, label: 'ETIHAD AIRWAYS  ·  AIRBUS A350-1000'
+              StaticText, 0x10356d140, {{20.0, 652.7}, {74.7, 25.3}}, label: '3D-DEL'
+              StaticText, 0x103570b10, {{25.0, 435.6}, {164.3, 12.7}}, label: 'PrestonS [Can't spell and Read]'
+              Button, 0x1035706f0, {{20.0, 696.1}, {77.7, 26.3}}, label: 'EGLL, 🇬🇧'
+                StaticText, 0x103571af0, {{20.0, 696.1}, {55.7, 26.3}}, label: 'EGLL'
+                StaticText, 0x1035702d0, {{81.7, 706.7}, {16.0, 13.3}}, label: '🇬🇧'
+              StaticText, 0x10356e9a0, {{20.0, 724.4}, {98.7, 14.0}}, label: 'London Heathrow'
+              StaticText, 0x103572e70, {{20.0, 744.4}, {49.3, 15.7}}, label: '01:24 Z'
+              StaticText, 0x103572f90, {{75.3, 746.4}, {3.7, 13.3}}, label: '·'
+              StaticText, 0x1035730b0, {{85.0, 746.4}, {53.7, 13.3}}, label: 'estimated'
+              Image, 0x1035731d0, {{30.3, 772.3}, {7.7, 10.3}}, identifier: 'door.left.hand.open', label: 'door.left.hand.open'
+              StaticText, 0x1035732f0, {{43.3, 771.1}, {42.7, 12.7}}, label: 'Gate ---'
+              Button, 0x103573410, {{301.3, 696.1}, {80.7, 26.3}}, label: 'EDDF, 🇩🇪'
+                StaticText, 0x103573530, {{301.3, 696.1}, {58.7, 26.3}}, label: 'EDDF'
+                StaticText, 0x103573650, {{366.0, 706.7}, {16.0, 13.3}}, label: '🇩🇪'
+              StaticText, 0x103573770, {{330.0, 724.4}, {52.0, 14.0}}, label: 'Frankfurt'
+              StaticText, 0x103573890, {{263.3, 744.4}, {49.3, 15.7}}, label: '01:26 Z'
+              StaticText, 0x1035739b0, {{318.7, 746.4}, {3.7, 13.3}}, label: '·'
+              StaticText, 0x103573ad0, {{328.3, 746.4}, {53.7, 13.3}}, label: 'estimated'
+              Image, 0x103573bf0, {{317.3, 772.3}, {7.7, 10.3}}, identifier: 'door.left.hand.closed', label: 'door.left.hand.closed'
+              StaticText, 0x103573d10, {{330.3, 771.1}, {42.7, 12.7}}, label: 'Gate ---'
+              Other, 0x103573f80, {{20.0, 802.7}, {369.0, 24.0}}, label: '100 percent of the way'
+                Image, 0x1035740a0, {{365.0, 802.7}, {24.0, 24.0}}
+              StaticText, 0x1035741c0, {{20.0, 838.4}, {29.7, 14.0}}, label: '1 NM'
+              StaticText, 0x1035742e0, {{186.8, 838.7}, {40.3, 13.3}}, label: 'Ground'
+              StaticText, 0x103574400, {{328.0, 838.4}, {54.0, 14.0}}, label: 'ETE: --:--'
+              ScrollView, 0x103574520, {{3.0, 430.5}, {396.0, 450.5}}
+                Other, 0x103574640, {{3.0, 430.5}, {396.0, 2446.7}}
+              Button, 0x103574760, {{135.0, 416.7}, {132.0, 26.0}}, label: 'Close the flight window'
+    Window, 0x103574a80, {{0.0, 0.0}, {402.0, 874.0}}
+      Other, 0x103574ba0, {{0.0, 0.0}, {402.0, 874.0}}
+        Other, 0x103574cc0, {{0.0, 0.0}, {402.0, 874.0}}
+Path to element:
+ →Application, 0x1034648d0, pid: 31659, label: 'Inflight'
+Query chain:
+ →Find: Target Application 'com.tracker.Inflight'
+  Output: {
+    Application, 0x103574de0, pid: 31659, label: 'Inflight'
+  }

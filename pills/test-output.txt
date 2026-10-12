@@ -1,0 +1,100 @@
+    builtin-ScanDependencies -o /Users/runner/Library/Developer/Xcode/DerivedData/InflightTracker-bqhdlnugqddhxbgtumnkzslvdusg/Build/Intermediates.noindex/InflightTracker.build/Debug-iphonesimulator/InflightWidgets.build/Objects-normal/arm64/InflightWidgets_vers.o.scan -- /Applications/Xcode_26.3.ap
+    /Applications/Xcode_26.3.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang -x c -ivfsstatcache /Users/runner/Library/Developer/Xcode/DerivedData/SDKStatCaches.noindex/iphonesimulator26.2-23C57-dc75598d0054f22ec865fa860f139d72e244bd9a5feaf902f95f61bf06266e52.sdkstatcache -f
+    builtin-ScanDependencies -o /Users/runner/Library/Developer/Xcode/DerivedData/InflightTracker-bqhdlnugqddhxbgtumnkzslvdusg/Build/Intermediates.noindex/InflightTracker.build/Debug-iphonesimulator/InflightTracker.build/Objects-normal/arm64/Inflight_vers.o.scan -- /Applications/Xcode_26.3.app/Conte
+    /Applications/Xcode_26.3.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang -x c -ivfsstatcache /Users/runner/Library/Developer/Xcode/DerivedData/SDKStatCaches.noindex/iphonesimulator26.2-23C57-dc75598d0054f22ec865fa860f139d72e244bd9a5feaf902f95f61bf06266e52.sdkstatcache -f
+    builtin-ScanDependencies -o /Users/runner/Library/Developer/Xcode/DerivedData/InflightTracker-bqhdlnugqddhxbgtumnkzslvdusg/Build/Intermediates.noindex/InflightTracker.build/Debug-iphonesimulator/InflightUIProbe.build/Objects-normal/arm64/InflightUIProbe_vers.o.scan -- /Applications/Xcode_26.3.ap
+    /Applications/Xcode_26.3.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang -x c -ivfsstatcache /Users/runner/Library/Developer/Xcode/DerivedData/SDKStatCaches.noindex/iphonesimulator26.2-23C57-dc75598d0054f22ec865fa860f139d72e244bd9a5feaf902f95f61bf06266e52.sdkstatcache -f
+    t =      nans Interface orientation changed to Portrait
+Test Case '-[InflightUIProbe.UIProbe testProbe]' started.
+    t =     0.00s Start Test at 2026-10-12 01:23:40.004
+    t =     1.08s Set Up
+    t =     1.09s Open com.tracker.Inflight
+    t =     1.09s     Launch com.tracker.Inflight
+    t =    51.75s         Setting up automation session
+    t =    52.17s         Wait for com.tracker.Inflight to idle
+    t =    53.21s Waiting 15.0s for "Agree and continue" Button to exist
+    t =    54.26s     Checking `Expect predicate `existsNoRetry == 1` for object "Agree and continue" Button`
+    t =    54.26s         Checking existence of `"Agree and continue" Button`
+    t =    54.57s Tap "Agree and continue" Button
+    t =    54.57s     Wait for com.tracker.Inflight to idle
+    t =    54.58s     Find the "Agree and continue" Button
+    t =    54.87s     Check for interrupting elements affecting "Agree and continue" Button
+    t =    55.16s     Synthesize event
+    t =    55.78s     Wait for com.tracker.Inflight to idle
+    t =    85.82s Double tap Target Application 'com.tracker.Inflight'[0.80, 0.36]
+    t =    85.84s     Wait for com.tracker.Inflight to idle
+    t =    85.87s     Find the Target Application 'com.tracker.Inflight'
+    t =    86.04s     Check for interrupting elements affecting "Inflight" Application
+    t =    86.14s     Synthesize event
+    t =    86.16s         Find the Target Application 'com.tracker.Inflight'
+    t =    86.19s         Find the Target Application 'com.tracker.Inflight'
+    t =    86.24s         Find the Target Application 'com.tracker.Inflight'
+    t =    86.63s     Wait for com.tracker.Inflight to idle
+    t =    88.80s Double tap Target Application 'com.tracker.Inflight'[0.80, 0.36]
+    t =    88.80s     Wait for com.tracker.Inflight to idle
+    t =    88.84s     Find the Target Application 'com.tracker.Inflight'
+    t =    88.93s     Check for interrupting elements affecting "Inflight" Application
+    t =    88.99s     Synthesize event
+    t =    89.00s         Find the Target Application 'com.tracker.Inflight'
+    t =    89.06s         Find the Target Application 'com.tracker.Inflight'
+    t =    89.16s         Find the Target Application 'com.tracker.Inflight'
+    t =    89.55s     Wait for com.tracker.Inflight to idle
+    t =    91.69s Double tap Target Application 'com.tracker.Inflight'[0.80, 0.36]
+    t =    91.69s     Wait for com.tracker.Inflight to idle
+    t =    91.70s     Find the Target Application 'com.tracker.Inflight'
+    t =    91.85s     Check for interrupting elements affecting "Inflight" Application
+    t =    91.94s     Synthesize event
+    t =    91.94s         Find the Target Application 'com.tracker.Inflight'
+    t =    91.97s         Find the Target Application 'com.tracker.Inflight'
+    t =    92.05s         Find the Target Application 'com.tracker.Inflight'
+    t =    92.49s     Wait for com.tracker.Inflight to idle
+    t =    94.63s Double tap Target Application 'com.tracker.Inflight'[0.80, 0.36]
+    t =    94.63s     Wait for com.tracker.Inflight to idle
+    t =    94.65s     Find the Target Application 'com.tracker.Inflight'
+    t =    94.77s     Check for interrupting elements affecting "Inflight" Application
+    t =    94.86s     Synthesize event
+    t =    94.86s         Find the Target Application 'com.tracker.Inflight'
+    t =    95.01s         Find the Target Application 'com.tracker.Inflight'
+    t =    95.14s         Find the Target Application 'com.tracker.Inflight'
+    t =    95.57s     Wait for com.tracker.Inflight to idle
+    t =    97.70s Double tap Target Application 'com.tracker.Inflight'[0.80, 0.36]
+    t =    97.70s     Wait for com.tracker.Inflight to idle
+    t =    97.71s     Find the Target Application 'com.tracker.Inflight'
+    t =    97.81s     Check for interrupting elements affecting "Inflight" Application
+    t =    97.89s     Synthesize event
+    t =    97.90s         Find the Target Application 'com.tracker.Inflight'
+    t =    98.00s         Find the Target Application 'com.tracker.Inflight'
+    t =    98.09s         Find the Target Application 'com.tracker.Inflight'
+    t =    98.53s     Wait for com.tracker.Inflight to idle
+    t =   111.57s Checking existence of `TextField (First Match)`
+    t =   111.83s Checking existence of `TextField (First Match)`
+    t =   111.91s Get number of matches for: Descendants matching type Keyboard
+    t =   112.08s Tap TextField (First Match)
+    t =   112.08s     Wait for com.tracker.Inflight to idle
+    t =   112.14s     Find the TextField (First Match)
+    t =   112.98s     Check for interrupting elements affecting "Search flights or airports" TextField
+    t =   113.57s     Synthesize event
+    t =   114.50s     Wait for com.tracker.Inflight to idle
+    t =   123.85s Get number of matches for: Descendants matching type Keyboard
+    t =   124.71s Get number of matches for: Descendants matching type Keyboard
+    t =   125.44s Get number of matches for: Descendants matching type Keyboard
+    t =   125.88s Get number of matches for: Descendants matching type Keyboard
+    t =   126.70s Get number of matches for: Descendants matching type Keyboard
+    t =   127.11s Type 'EGLL' into "Search flights or airports" TextField
+    t =   127.11s     Wait for com.tracker.Inflight to idle
+    t =   127.12s     Find the "Search flights or airports" TextField
+    t =   127.54s     Check for interrupting elements affecting "Search flights or airports" TextField
+    t =   128.31s     Synthesize event
+    t =   128.80s     Wait for com.tracker.Inflight to idle
+    t =   134.15s Checking existence of `StaticText (First Match)`
+    t =   134.90s Checking existence of `StaticText (First Match)`
+    t =   135.99s Tap StaticText (First Match)
+    t =   135.99s     Wait for com.tracker.Inflight to idle
+    t =   136.00s     Find the StaticText (First Match)
+    t =   138.63s     Check for interrupting elements affecting "Pishi_Rocket · Airbus A350-1000" StaticText
+    t =   139.50s     Synthesize event
+    t =   140.36s     Wait for com.tracker.Inflight to idle
+    t =   153.53s Requesting snapshot of accessibility hierarchy for app with pid 31659
+    t =   154.44s Requesting snapshot of accessibility hierarchy for app with pid 31659
+    t =   154.60s Tear Down
+Test Case '-[InflightUIProbe.UIProbe testProbe]' passed (156.739 seconds).
