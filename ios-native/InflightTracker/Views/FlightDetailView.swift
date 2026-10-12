@@ -24,6 +24,7 @@ struct FlightDetailView: View {
     /// sweeps, exactly as one open on a simulated aeroplane ticks with the
     /// packets.
     @ObservedObject private var realWorld = RealWorldTraffic.shared
+    @ObservedObject private var weatherPreferences = WeatherPreferences.shared
     @StateObject private var photoLoader = AircraftPhotoLoader()
     @StateObject private var imageLoader = RemoteImageLoader()
 
@@ -161,6 +162,12 @@ struct FlightDetailView: View {
     /// which is most places: a flight opened off the map has nothing behind it
     /// to go back to.
     var origin: Origin? = nil
+
+    /// The weather the aircraft is flying over — the field it is passing and
+    /// both ends of its route — drawn at the foot of the open window. The
+    /// map's, handed in rather than owned, so the chip and this card are one
+    /// set of reports rather than two downloads of the same three.
+    var weather: WeatherModel? = nil
 
     /// Where the window was opened from, and how to get back to it.
     struct Origin {
@@ -1266,6 +1273,14 @@ struct FlightDetailView: View {
     /// the type-checker has already given up on this file once.
     private var foot: some View {
         VStack(spacing: 12) {
+            // What the aircraft is flying through, once the window is open all
+            // the way — the same card the map's chip opens, on the window's
+            // own surface. Here rather than in either look's column so the
+            // Horizon window and the standard one both carry it.
+            if let weather, weatherPreferences.isChipVisible {
+                StationWeatherCard(model: weather, theme: theme, isInset: true)
+            }
+
             // Last of all, and only where it is true. See
             // `RealWorldAttribution`.
             if isRealWorld {

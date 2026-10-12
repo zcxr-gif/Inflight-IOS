@@ -983,7 +983,20 @@ struct AircraftPhotoImage: View {
     /// worked out from the photograph's own ratio and would need almost none of
     /// it, except that the peak then clamps that height against the screen, and
     /// on a small phone the clamp is most of what this has to absorb.
+    ///
+    /// It applies to the height only. Trimming a photograph's *width* is
+    /// trimming the nose and the tail — the fuselage runs edge to edge in a
+    /// side-on shot — so a picture wider than its frame gets the whole airframe
+    /// on the backdrop rather than the scissors, however small the trim would
+    /// be. That case used to be rare, when each frame took its photograph's
+    /// own shape; since the frames became one fixed shape (see
+    /// `FlightHero.shape`) every 16:9 shot is one, and they were all losing
+    /// their ends. `sideTolerance` is the sliver that does not count.
     private static let cropTolerance: CGFloat = 0.25
+
+    /// How much of a photograph's width may go to fill the frame: a couple of
+    /// per cent, which is rounding at these sizes rather than airframe.
+    private static let sideTolerance: CGFloat = 0.02
 
     /// Which photograph is on screen, as something comparable.
     ///
@@ -1048,6 +1061,9 @@ struct AircraftPhotoImage: View {
         // of — the height when the frame is the wider of the two shapes, the
         // width when the photograph is.
         let trimmed = 1 - min(picture, box) / max(picture, box)
+        // Wider than the frame: filling would come off the sides, which is
+        // where the nose and tail are.
+        if picture > box { return trimmed <= Self.sideTolerance }
         return trimmed <= Self.cropTolerance
     }
 

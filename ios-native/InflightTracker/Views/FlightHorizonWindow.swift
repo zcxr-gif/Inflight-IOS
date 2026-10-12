@@ -423,7 +423,11 @@ struct FlightHorizonHeader: View {
                 spriteKey: flight.spriteKey,
                 theme: .horizon(palette.colour),
                 iconSize: 64,
-                contentMode: .fill
+                // `.fit`, like the pager above and the hero: the band is one
+                // fixed shape, and `.fill` cut the nose and tail off every shot
+                // wider than it. Fitted, a near shape still fills by trimming
+                // sky, and a wide one sits whole on its blurred backdrop.
+                contentMode: .fit
             )
         }
     }

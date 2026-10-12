@@ -1034,6 +1034,23 @@ struct ContentView: View {
         }
     }
 
+    /// The flight window's chip, opened. A tap on it puts it away again.
+    private var stationWeatherCard: some View {
+        StationWeatherCard(model: weather, theme: theme)
+            .contentShape(Rectangle())
+            .onTapGesture {
+                withAnimation(Motion.control) { isWeatherExpanded = false }
+            }
+    }
+
+    /// How tall the chip's card may be: from under the top row to a little
+    /// above whatever the window is standing on the bottom of the map.
+    private var weatherCardRoom: CGFloat {
+        let topRow: CGFloat = 8 + 44 + 10
+        let gap: CGFloat = 12
+        return max(mapAreaSize.height - topRow - flightWindowBottomInset - gap, 120)
+    }
+
     /// Whether the map's own weather pill may come up: switched on, over the
     /// flat map — the planet reports no settle to read a place from — and with
     /// nothing open, where the flight window's chip stands instead.
@@ -1067,11 +1084,16 @@ struct ContentView: View {
                             isExpanded: $isWeatherExpanded
                         )
                     } else if weatherPreferences.isChipVisible {
-                        StationWeatherCard(model: weather, theme: theme)
-                            .contentShape(Rectangle())
-                            .onTapGesture {
-                                withAnimation(Motion.control) { isWeatherExpanded = false }
-                            }
+                        // Held to the map left above the window. The card used
+                        // to drop to its full height whatever was under it, and
+                        // with the window at its peak its lower half ran on
+                        // behind it. Whole where it fits; scrolling in the room
+                        // there is where it does not.
+                        ViewThatFits(in: .vertical) {
+                            stationWeatherCard
+                            ScrollView(showsIndicators: false) { stationWeatherCard }
+                        }
+                        .frame(maxHeight: weatherCardRoom, alignment: .top)
                     }
                 }
                 .transition(.opacity.combined(with: .scale(scale: 0.92, anchor: .topLeading)))
@@ -1227,7 +1249,8 @@ struct ContentView: View {
                     presentation: .pane,
                     onReplay: { track in startReplay(of: selected.id, track: track) },
                     onSelectAirport: { field in openAirport(field, from: selected) },
-                    origin: flightReturn(for: selected)
+                    origin: flightReturn(for: selected),
+                    weather: weather
                 )
                     // Same as the sheet's: a different aircraft resets the
                     // window's own state without the window going anywhere.
@@ -1285,6 +1308,13 @@ struct ContentView: View {
         .motion(Motion.chrome, value: isChromeHidden)
         .onChange(of: isFollowing) { _, following in
             if !following { isChasing = false }
+        }
+        // Opened all the way, the window carries the weather itself, and the
+        // chip's card would only be a second copy floating over it.
+        .onChange(of: isWindowExpanded) { _, expanded in
+            if expanded, isWeatherExpanded {
+                withAnimation(Motion.control) { isWeatherExpanded = false }
+            }
         }
         // Let down to the bar, the sheet is the search field again.
         .onChange(of: dockDetent) { _, stop in
@@ -1603,7 +1633,8 @@ struct ContentView: View {
                     },
                     onReplay: { track in startReplay(of: selected.id, track: track) },
                     onSelectAirport: { field in openAirport(field, from: selected) },
-                    origin: flightReturn(for: selected)
+                    origin: flightReturn(for: selected),
+                    weather: weather
                 )
                     // No `.id`: tapping another aeroplane changes the window
                     // rather than replacing it — see
@@ -1775,11 +1806,13 @@ struct ContentView: View {
 
     /// How much of the world is in view when a field is opened.
     ///
-    /// Wide enough to show the traffic on its way in rather than only the
-    /// runways: the panel's first section is the inbound list, and a camera
-    /// tight enough to read the taxiways would put every aircraft on that list
-    /// off screen.
-    private static let fieldSpanMeters: Double = 90_000
+    /// The field itself, filling the part of the map the panel leaves clear:
+    /// six kilometres is the runways and aprons of even the big hubs with a
+    /// little ground around them. It used to be ninety, to keep the inbound
+    /// traffic on screen, and that pulled back so far — a region, not an
+    /// airport — that the place being described was a dot. The traffic on
+    /// its way in is a pinch away; the field is what was asked for.
+    private static let fieldSpanMeters: Double = 6_000
 
     /// Open a field from somewhere with nothing to come back to.
     private func openAirport(_ airport: Airport) {
