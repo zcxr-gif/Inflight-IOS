@@ -1,0 +1,153 @@
+# Diagnostic only: runs the app in a simulator at a few commits and records
+# what it shows and which controls answer. Removed before merging.
+name: UI probe
+
+on:
+  push:
+    branches:
+      - 'claude/fix-buttons-planes'
+  workflow_dispatch:
+
+concurrency:
+  group: ui-probe-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  probe:
+    runs-on: macos-15
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: pills
+            ref: ''
+            patch: ''
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: probe
+
+      - uses: actions/checkout@v4
+        with:
+          path: app
+          ref: ${{ matrix.ref || github.sha }}
+          fetch-depth: 0
+
+      - name: Apply the variant's patch
+        if: matrix.patch != ''
+        working-directory: app/ios-native/InflightTracker
+        env:
+          PATCH: ${{ matrix.patch }}
+        run: |
+          python3 - <<'PY'
+          import os, re
+          kind = os.environ["PATCH"]
+          if kind == "band":
+              p = "Views/MapDock.swift"
+              s = open(p).read()
+              start = s.index("    static var homeIndicatorBand: CGFloat {")
+              end = s.index("    }", s.index("return scene?.keyWindow", start)) + len("    }")
+              s = s[:start] + "    static var homeIndicatorBand: CGFloat { 34 }" + s[end:]
+              open(p, "w").write(s)
+          elif kind == "pill":
+              p = "Views/ContentView.swift"
+              s = open(p).read()
+              start = s.index("                AreaWeatherPillSlot(")
+              end = s.index(")", s.index("isExpanded: $isWeatherExpanded", start)) + 1
+              s = s[:start] + s[end:]
+              open(p, "w").write(s)
+          PY
+          git -C ../.. diff --stat
+
+      - name: Pick the newest Xcode
+        run: |
+          newest=$(ls -1d /Applications/Xcode*.app 2>/dev/null | sort -V | tail -1)
+          sudo xcode-select -s "$newest/Contents/Developer"
+          xcodebuild -version
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate the project with the probe
+        working-directory: app/ios-native
+        run: |
+          cp -R ../../probe/tools/uiprobe/UIProbe UIProbe
+          cp ../../probe/tools/uiprobe/ui-probe.yml ui-probe.yml
+          xcodegen generate --spec ui-probe.yml
+
+      - name: Pick a simulator
+        id: sim
+        run: |
+          udid=$(xcrun simctl list devices available -j | python3 -c '
+          import json,sys
+          d=json.load(sys.stdin)["devices"]
+          best=None
+          for rt,devs in d.items():
+              if "iOS" not in rt: continue
+              for x in devs:
+                  if x["name"].startswith("iPhone") and "Pro" in x["name"] and "Max" not in x["name"]:
+                      best=(rt,x["udid"],x["name"])
+          print(best[1]); print(best, file=sys.stderr)')
+          echo "udid=$udid" >> "$GITHUB_OUTPUT"
+          xcrun simctl boot "$udid" || true
+
+      - name: Run the probe
+        working-directory: app/ios-native
+        env:
+          TEST_RUNNER_PROBE_OUT: /tmp/probe
+        run: |
+          mkdir -p /tmp/probe
+          xcrun simctl spawn ${{ steps.sim.outputs.udid }} log stream --level debug --style compact \
+            --predicate 'process == "Inflight"' > /tmp/probe/app-log.txt 2>&1 &
+          set -o pipefail
+          xcodebuild test \
+            -project InflightTracker.xcodeproj \
+            -scheme InflightProbe \
+            -destination "id=${{ steps.sim.outputs.udid }}" \
+            -resultBundlePath /tmp/probe/result.xcresult \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGN_ENTITLEMENTS="" \
+            2>&1 | tee /tmp/probe/build.log | grep -E "PROBE:|error:|Test Case|\*\*" || true
+          echo "=== PROBE LOG"
+          cat /tmp/probe/log.txt || true
+          echo "=== APP ERRORS"
+          grep -vE "xctest|XCTQuery|User Defaults|com.apple.network|EventDispatch|Accessibility" /tmp/probe/app-log.txt \
+            | grep -E " E |Fault|error|Error|crash|assert" | cut -c1-260 | sort | uniq -c | sort -rn | head -60 || true
+          echo "=== APP INFLIGHT LINES"
+          grep -vE "com.apple|xctest|XCTQuery" /tmp/probe/app-log.txt | cut -c1-260 | head -120 || true
+          for f in /tmp/probe/*.png; do
+            n=$(basename "$f" .png)
+            sips -Z 1300 -s format jpeg -s formatOptions 75 "$f" --out "/tmp/probe/$n.jpg" > /dev/null
+          done
+
+      - name: Publish the results to a scratch branch
+        if: always()
+        env:
+          NAME: ${{ matrix.name }}
+        run: |
+          mkdir -p /tmp/out/$NAME
+          cp /tmp/probe/*.jpg /tmp/probe/*.txt /tmp/out/$NAME/ 2>/dev/null || true
+          rm -f /tmp/out/$NAME/app-log.txt
+          grep -vE "xctest|XCTQuery|User Defaults|com.apple.network|EventDispatch" /tmp/probe/app-log.txt | cut -c1-400 | tail -3000 > /tmp/out/$NAME/app-log-trimmed.txt || true
+          cd /tmp/out
+          git init -q
+          git checkout -q -b probe-results-$NAME
+          git add -A
+          git -c user.name=probe -c user.email=probe@example.com commit -qm "probe $NAME"
+          git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" probe-results-$NAME
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: probe-${{ matrix.name }}
+          path: |
+            /tmp/probe/*.png
+            /tmp/probe/*.txt
+            /tmp/probe/attachments
