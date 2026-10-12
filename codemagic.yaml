@@ -53,6 +53,10 @@ workflows:
         - pattern: '*'
           include: true
           source: true
+        # Diagnostic branch only; never ships.
+        - pattern: 'claude/3d-buildings-probe'
+          include: false
+          source: true
 
     scripts:
       - name: Install XcodeGen
