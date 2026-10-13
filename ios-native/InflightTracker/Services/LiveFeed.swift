@@ -59,6 +59,10 @@ final class LiveFeed: ObservableObject {
     private var socket: SocketIOClient?
     private let decodeQueue = DispatchQueue(label: "com.tracker.inflight.feed", qos: .userInitiated)
 
+    /// The controllers in the last list published, and the room they were
+    /// for. `decodeQueue` only.
+    private var publishedFacilities: (room: String, facilities: [AtcFacility])?
+
     /// The room the socket callbacks should be joining/filtering against.
     /// Written from the main thread, read from `decodeQueue`, so it is
     /// guarded rather than read directly off `server`.
@@ -224,6 +228,14 @@ final class LiveFeed: ObservableObject {
         // Grouped here, on the decode queue, rather than in the panel's body:
         // the panel is rebuilt on every packet either way, and this is the part
         // that costs something.
+        // Most of these say what the last one said: the same controllers on
+        // the same frequencies. Published anyway, each was the whole screen
+        // and the map redrawn, and the fields ranked again over every
+        // aircraft on the server, for a list that had not changed.
+        let currentRoom = room
+        if let last = publishedFacilities, last.room == currentRoom, last.facilities == parsed { return }
+        publishedFacilities = (currentRoom, parsed)
+
         let stations = AtcStation.group(parsed)
         let count = parsed.count
 
