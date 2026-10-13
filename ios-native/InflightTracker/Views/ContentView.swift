@@ -1208,11 +1208,20 @@ struct ContentView: View {
                         // The ruler is a pair of points on the map's own
                         // layers, so it has nowhere to be on the drawn planet.
                         if projection.isDrawn { measurement = MapMeasurement() }
-                    }
+                    },
+                    // Side to side wherever the flight window is, and a column
+                    // wherever that is a pane.
+                    fillsWidth: !usesFlightPane,
+                    bottomInset: homeIndicatorBand
                 )
-                .padding(.horizontal, 10)
-                .padding(.bottom, 10)
+                // The same room above it the flight window leaves at its
+                // full height, for a window that has to scroll.
+                .padding(.top, FlightWindowDockMetrics.topGap)
             }
+            // Standing on the foot of the screen rather than the safe area's,
+            // the way the flight window does: down into the home indicator's
+            // band, with its content kept clear of it by `bottomInset`.
+            .ignoresSafeArea(.container, edges: .bottom)
             // Out of the dock's island, like every window.
             .transition(.bornFromDock)
             .zIndex(10)
