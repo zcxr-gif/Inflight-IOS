@@ -78,6 +78,14 @@ final class AircraftEngine: NSObject, CustomLayerHost {
     private var device: MTLDevice?
     private var isLight = false
 
+    /// Whether anything the engine draws has changed since the map was last
+    /// asked for a frame — see `takeChange`.
+    private var hasChanged = true
+
+    /// Whether the last frame drew an aeroplane close enough to wear its
+    /// lights, whose beacons flash on their own clock.
+    private var drewLights = false
+
     // MARK: - The renderer's own
 
     private var opaquePipeline: MTLRenderPipelineState?
@@ -94,9 +102,17 @@ final class AircraftEngine: NSObject, CustomLayerHost {
     // MARK: - Feeding it
 
     /// The aircraft to draw on the next frame, replacing the last set.
+    ///
+    /// A set identical to the one already held is not a change: the map is
+    /// handed one every frame, and most frames — a parked ramp, a cruise seen
+    /// from far enough out that nothing has moved a hair — hand it the same
+    /// picture again.
     func update(_ aircraft: [Aircraft]) {
         lock.lock()
-        self.aircraft = aircraft
+        if !Self.same(aircraft, self.aircraft) {
+            self.aircraft = aircraft
+            hasChanged = true
+        }
         lock.unlock()
     }
 
@@ -105,8 +121,53 @@ final class AircraftEngine: NSObject, CustomLayerHost {
     /// handed over when the track itself changes.
     func setPath(_ path: AircraftPath?) {
         lock.lock()
+        if path != nil || self.path != nil { hasChanged = true }
         self.path = path
         lock.unlock()
+    }
+
+    /// Whether the map needs to draw a frame for the models — something they
+    /// draw has changed since this was last asked — and forgets the answer.
+    ///
+    /// What lets the map go idle. Mapbox draws a frame when its camera moves
+    /// or its sources change, and the engine's `render` rides along on every
+    /// one of those; a repaint asked for on top of that is only needed when
+    /// the models themselves moved. Asked for unconditionally, it was a full
+    /// redraw of the map — terrain, buildings, sky and all — sixty times a
+    /// second for as long as the models were switched on, whether or not a
+    /// single aeroplane had moved.
+    func takeChange() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        let changed = hasChanged
+        hasChanged = false
+        return changed
+    }
+
+    /// Whether the last frame drew lights, so beacons are flashing on screen.
+    var isShowingLights: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return drewLights
+    }
+
+    /// Whether two sets of aircraft draw the same picture.
+    private static func same(_ a: [Aircraft], _ b: [Aircraft]) -> Bool {
+        guard a.count == b.count else { return false }
+        for index in a.indices {
+            let x = a[index], y = b[index]
+            guard x.coordinate.latitude == y.coordinate.latitude,
+                  x.coordinate.longitude == y.coordinate.longitude,
+                  x.heading == y.heading,
+                  x.pitch == y.pitch,
+                  x.bank == y.bank,
+                  x.heightMetres == y.heightMetres,
+                  x.seaAltitudeMetres == y.seaAltitudeMetres,
+                  x.tint == y.tint,
+                  x.id == y.id,
+                  x.model == y.model else { return false }
+        }
+        return true
     }
 
     /// Whether a model is loaded and will be drawn.
@@ -131,6 +192,7 @@ final class AircraftEngine: NSObject, CustomLayerHost {
     /// The light map wants the models less bright than the dark one does.
     func setLightScheme(_ light: Bool) {
         lock.lock()
+        if isLight != light { hasChanged = true }
         isLight = light
         lock.unlock()
     }
@@ -162,7 +224,10 @@ final class AircraftEngine: NSObject, CustomLayerHost {
             guard let self else { return }
             self.lock.lock()
             self.loading.remove(model)
-            if let loaded { self.models[model] = loaded }
+            if let loaded {
+                self.models[model] = loaded
+                self.hasChanged = true
+            }
             self.lock.unlock()
             if loaded != nil {
                 DispatchQueue.main.async { self.onModelReady?(model) }
@@ -268,6 +333,16 @@ final class AircraftEngine: NSObject, CustomLayerHost {
         mtlCommandBuffer: MTLCommandBuffer,
         mtlRenderPassDescriptor: MTLRenderPassDescriptor
     ) {
+        Perf.measure("3D aircraft") {
+            draw(parameters, mtlCommandBuffer: mtlCommandBuffer, mtlRenderPassDescriptor: mtlRenderPassDescriptor)
+        }
+    }
+
+    private func draw(
+        _ parameters: CustomLayerRenderParameters,
+        mtlCommandBuffer: MTLCommandBuffer,
+        mtlRenderPassDescriptor: MTLRenderPassDescriptor
+    ) {
         lock.lock()
         let aircraft = self.aircraft
         let path = self.path
@@ -286,6 +361,7 @@ final class AircraftEngine: NSObject, CustomLayerHost {
         var head: AircraftPathMesh.Head?
         var shadows = GlowBatch()
         var lights = GlowBatch()
+        var lit = false
 
         for plane in aircraft {
             guard let model = models[plane.model] else { continue }
@@ -318,6 +394,7 @@ final class AircraftEngine: NSObject, CustomLayerHost {
             groups[GroupKey(model: plane.model, lod: lod), default: []].append(placed.instance)
             let radius = CGFloat(max(placed.screenLength * 0.55, Self.smallestTapRadius))
             marks.append((plane.id, placed.screenPoint, radius))
+            if placed.screenLength >= AircraftEffects.lightsFromPoints { lit = true }
 
             AircraftEffects.shadow(
                 for: plane, on: placed, anchors: model.anchors, sunlight: sunlight,
@@ -331,6 +408,7 @@ final class AircraftEngine: NSObject, CustomLayerHost {
 
         lock.lock()
         drawn = marks
+        drewLights = lit
         lock.unlock()
 
         let haloColour = isLight ? SIMD4<Float>(1, 1, 1, 0.55) : SIMD4<Float>(0, 0, 0, 0.45)
