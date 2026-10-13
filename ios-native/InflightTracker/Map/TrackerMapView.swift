@@ -3098,11 +3098,29 @@ struct TrackerMapView: UIViewRepresentable {
         /// Draws the airspace of every sector somebody is working. Keyed on
         /// the stations, so a packet that changes nothing about who is on
         /// frequency costs one string comparison.
+        /// Whether the ATC boundaries are being decoded for the layer.
+        private var isPreloadingAtc = false
+
         private func syncAtcBoundaries(on map: MapboxMap) {
             guard parent.showsAtcBoundaries else {
                 if renderedAtcKey != nil {
                     clear(Source.atc)
                     renderedAtcKey = nil
+                }
+                return
+            }
+
+            // The boundaries are decoded off the main thread the first time
+            // they are wanted, and drawn when they land.
+            let boundaries = AtcBoundaryStore.shared
+            guard boundaries.isLoaded else {
+                guard !isPreloadingAtc else { return }
+                isPreloadingAtc = true
+                boundaries.preload { [weak self] in
+                    guard let self else { return }
+                    self.isPreloadingAtc = false
+                    guard self.isStyleLoaded, let map = self.map else { return }
+                    self.syncAtcBoundaries(on: map)
                 }
                 return
             }
@@ -3122,7 +3140,7 @@ struct TrackerMapView: UIViewRepresentable {
             }
 
             var features: [Feature] = []
-            for active in AtcBoundaryStore.shared.activeSectors(for: centres) {
+            for active in boundaries.activeSectors(for: centres) {
                 for ring in active.sector.rings where ring.count >= 3 {
                     features.append(Self.polygonFeature([ring], ["sector": .string(active.sector.id)]))
                 }
