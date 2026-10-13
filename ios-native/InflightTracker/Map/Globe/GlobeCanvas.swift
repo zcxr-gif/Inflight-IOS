@@ -261,7 +261,7 @@ private final class GlobePlanetView: UIView {
 
     override func draw(_ rect: CGRect) {
         guard let context = UIGraphicsGetCurrentContext() else { return }
-        owner?.drawPlanet(in: context)
+        Perf.measure("Planet traffic") { owner?.drawPlanet(in: context) }
     }
 }
 
@@ -286,7 +286,7 @@ private final class GlobeWorldView: UIView {
 
     override func draw(_ rect: CGRect) {
         guard let context = UIGraphicsGetCurrentContext() else { return }
-        owner?.drawWorld(in: context)
+        Perf.measure("Planet world") { owner?.drawWorld(in: context) }
     }
 }
 

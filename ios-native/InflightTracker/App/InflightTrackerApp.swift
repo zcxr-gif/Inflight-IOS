@@ -83,6 +83,10 @@ private struct RootView: View {
                     .transition(.opacity)
                     .zIndex(2)
             }
+
+            // Off unless switched on under Settings › About.
+            FrameMeterOverlay()
+                .zIndex(3)
         }
     }
 

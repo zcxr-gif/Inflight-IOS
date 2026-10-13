@@ -858,6 +858,8 @@ struct AboutSettingsPanel: View {
 
     @State private var isShowingAcknowledgements = false
 
+    @AppStorage(FrameMeter.settingKey) private var showsFrameMeter = false
+
     private var theme: FlightInfoTheme { appearance.theme }
 
     var body: some View {
@@ -871,6 +873,16 @@ struct AboutSettingsPanel: View {
                 row("Aircraft icons", value: PlaneSprites.shared.isReady ? "Vector" : "Missing")
                 PanelDivider()
                 row("Traffic", value: Lf("%@ aircraft", String(feed.flights.count)))
+                PanelDivider()
+                // For a stutter seen on a phone, from a TestFlight build: what
+                // the frame rate is doing, and which part of the app's own
+                // work was slowest when it happened.
+                PanelToggleRow(
+                    title: "Frame-rate meter",
+                    symbol: "speedometer",
+                    detail: "Frame rate, hitches and the slowest work, in the corner of the screen.",
+                    isOn: $showsFrameMeter
+                )
             }
             .panelEntrance(0)
 
