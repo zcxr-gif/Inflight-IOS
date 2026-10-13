@@ -94,8 +94,12 @@ struct MapModesWindow: View {
         // Out of the dock's island, like every window — see `WindowBirth`.
         // Square at the foot, so it opens out to the sides of the screen
         // exactly as the flight window does.
-        .bornFromDock(theme: theme, topRadius: BottomEdge.cornerRadius, bottomRadius: 0)
-        .shadow(color: .black.opacity(0.22), radius: 18, y: -2)
+        .bornFromDock(
+            theme: theme,
+            topRadius: BottomEdge.cornerRadius,
+            bottomRadius: 0,
+            shadow: WindowShadow(color: .black.opacity(0.22), radius: 18, y: -2)
+        )
         .offset(y: max(pull, 0))
         .environment(\.colorScheme, theme.colorScheme)
         .sheet(isPresented: $isShowingPaywall) { ProPanel(highlighted: paywallFeature) }

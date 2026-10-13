@@ -342,13 +342,17 @@ struct MapDock: View {
                 topTrailingRadius: Self.cornerRadius,
                 style: .continuous
             )
-            theme.sheetBackground
-                .clipShape(shape)
-                .overlay {
-                    shape.stroke(theme.stroke, lineWidth: 1)
-                }
-                .shadow(color: .black.opacity(0.24 * (1 - fill)), radius: 20, y: 6)
-                .padding(EdgeInsets(top: 0, leading: -spread, bottom: -spread, trailing: -spread))
+            // The shadow from the outline rather than from the glass — see
+            // `ShapeShadow`.
+            ZStack {
+                ShapeShadow(shape: shape, color: .black.opacity(0.24 * (1 - fill)), radius: 20, y: 6)
+                theme.sheetBackground
+                    .clipShape(shape)
+                    .overlay {
+                        shape.stroke(theme.stroke, lineWidth: 1)
+                    }
+            }
+            .padding(EdgeInsets(top: 0, leading: -spread, bottom: -spread, trailing: -spread))
         }
         .padding(.bottom, Self.islandMargin)
         .frame(width: width)

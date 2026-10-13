@@ -69,8 +69,17 @@ extension View {
     /// The window's own surface, born from the island. Applied to the view
     /// whose frame *is* the window — inside its shadow, so the shadow follows
     /// the glass as it grows — with the corners the window has once it is out.
-    func bornFromDock(theme: FlightInfoTheme, topRadius: CGFloat, bottomRadius: CGFloat) -> some View {
-        modifier(BornFromDock(theme: theme, topRadius: topRadius, bottomRadius: bottomRadius))
+    ///
+    /// The shadow, when there is one, is cast from the same outline as it
+    /// grows — see `ShapeShadow` for why it is drawn here rather than put on
+    /// the window with `.shadow`.
+    func bornFromDock(
+        theme: FlightInfoTheme,
+        topRadius: CGFloat,
+        bottomRadius: CGFloat,
+        shadow: WindowShadow? = nil
+    ) -> some View {
+        modifier(BornFromDock(theme: theme, topRadius: topRadius, bottomRadius: bottomRadius, shadow: shadow))
     }
 }
 
@@ -79,6 +88,7 @@ private struct BornFromDock: ViewModifier {
     let theme: FlightInfoTheme
     let topRadius: CGFloat
     let bottomRadius: CGFloat
+    let shadow: WindowShadow?
 
     @Environment(\.windowBirth) private var birth
     @Environment(\.dockIsland) private var island
@@ -92,6 +102,12 @@ private struct BornFromDock: ViewModifier {
             ? nil
             : island.offsetBy(dx: -frame.minX, dy: -frame.minY)
         let shaped = start == nil ? 1 : progress
+        let outline = BirthShape(
+            progress: shaped,
+            start: start ?? .zero,
+            topRadius: topRadius,
+            bottomRadius: bottomRadius
+        )
 
         return content
             // The island's glass over the window's content while it is still
@@ -101,12 +117,13 @@ private struct BornFromDock: ViewModifier {
                     .opacity(Self.veil(progress))
                     .allowsHitTesting(false)
             }
-            .clipShape(BirthShape(
-                progress: shaped,
-                start: start ?? .zero,
-                topRadius: topRadius,
-                bottomRadius: bottomRadius
-            ))
+            .clipShape(outline)
+            .background {
+                if let shadow {
+                    ShapeShadow(shape: outline, color: shadow.color, radius: shadow.radius, y: shadow.y)
+                        .allowsHitTesting(false)
+                }
+            }
             // And the window itself handed over to the bar at the island end,
             // rather than standing on top of it. See `presence`.
             .opacity(Self.presence(shaped))
