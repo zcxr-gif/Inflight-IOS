@@ -1058,6 +1058,19 @@ struct ContentView: View {
         weatherPreferences.isChipVisible && selection == nil && !isPlanetMap
     }
 
+    /// Whether a weather card is open over the map — the flight window's chip
+    /// opened, or the map's own pill.
+    ///
+    /// The card runs the width of the map, and the corner controls stand over
+    /// its right-hand side: the temperature, the air quality and the last of
+    /// the hours were under the buttons. So the controls step aside while it
+    /// is up, the way they do for the sheet, and come back when it is put away
+    /// — which a tap on it, or on the map, does.
+    private var isWeatherCardUp: Bool {
+        guard isWeatherExpanded else { return false }
+        return selection == nil ? showsAreaWeather : weatherPreferences.isChipVisible
+    }
+
     /// Map chrome, top down: the search field until an aircraft is open, then
     /// the weather chip in its place — it reports on where that aircraft is, so
     /// there is nothing for it to say without one.
@@ -2490,7 +2503,7 @@ struct ContentView: View {
     /// the flat map could never be black.
     @ViewBuilder
     private var mapStyleControl: some View {
-        if selection == nil, airportDockIcao == nil, !replay.isActive, !dockDetent.isRaised {
+        if selection == nil, airportDockIcao == nil, !replay.isActive, !dockDetent.isRaised, !isWeatherCardUp {
             VStack(spacing: 8) {
                 // One stack, one piece of chrome, so this corner reads as the
                 // map's own furniture rather than as loose buttons that happen
@@ -2630,10 +2643,11 @@ struct ContentView: View {
     /// the sheet covers this corner anyway, so there is nothing to hide.
     ///
     /// A running replay takes the corner: it is driving the camera itself, and
-    /// its bar wants the room these buttons would be sitting in.
+    /// its bar wants the room these buttons would be sitting in. So does an
+    /// open weather card — see `isWeatherCardUp`.
     @ViewBuilder
     private var mapControls: some View {
-        if selection != nil, !replay.isActive {
+        if selection != nil, !replay.isActive, !isWeatherCardUp {
             let axis = hubAxis
             let layout = axis == .vertical ? AnyLayout(VStackLayout(spacing: 8)) : AnyLayout(HStackLayout(spacing: 8))
             layout {
