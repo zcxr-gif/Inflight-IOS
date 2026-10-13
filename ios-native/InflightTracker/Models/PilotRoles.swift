@@ -69,16 +69,42 @@ enum PilotRole: Equatable {
     }
 }
 
-/// A role as a small capsule: "MOD" or "IFATC" in the role's colour.
+/// A role as a small badge: "MOD" as a capsule in the team's colour, and a
+/// controller as the IFATC logo itself.
 struct PilotRoleBadge: View {
 
     let role: PilotRole
 
-    /// Whether it sits on something dark — a banner under a scrim — where the
-    /// role's own colour reads as it is.
+    /// Whether it sits on something light. False on the dark window and on a
+    /// banner under a scrim, where the role's own colour reads as it is.
     var isLight = false
 
+    /// The IFATC wordmark's height, and its width to that height. The
+    /// wordmark alone — the big IFATC with the radar for its C — without the
+    /// "Infinite Flight ATC" line under it, which at this size is a smudge.
+    private static let logoHeight: CGFloat = 13
+    private static let logoAspect: CGFloat = 820 / 206
+
+    @ViewBuilder
     var body: some View {
+        switch role {
+        case .controller: logo
+        case .moderator: capsule
+        }
+    }
+
+    /// The logo in the ink the ground under it needs: its own black on a light
+    /// window, and white where black would vanish.
+    private var logo: some View {
+        Image(isLight ? "IFATCLogo" : "IFATCLogoOnDark")
+            .resizable()
+            .interpolation(.high)
+            .scaledToFit()
+            .frame(width: Self.logoHeight * Self.logoAspect, height: Self.logoHeight)
+            .accessibilityLabel(L(role.detail))
+    }
+
+    private var capsule: some View {
         Text(L(role.badge))
             .font(.system(size: 8.5, weight: .heavy))
             .tracking(0.6)

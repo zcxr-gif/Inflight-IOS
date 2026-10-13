@@ -1,0 +1,23 @@
+{
+  "images": [
+    {
+      "filename": "IFATCLogoOnDark.png",
+      "idiom": "universal",
+      "scale": "1x"
+    },
+    {
+      "filename": "IFATCLogoOnDark@2x.png",
+      "idiom": "universal",
+      "scale": "2x"
+    },
+    {
+      "filename": "IFATCLogoOnDark@3x.png",
+      "idiom": "universal",
+      "scale": "3x"
+    }
+  ],
+  "info": {
+    "author": "xcode",
+    "version": 1
+  }
+}
