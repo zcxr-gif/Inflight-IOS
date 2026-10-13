@@ -275,12 +275,24 @@ struct FlightHorizonBackdrop: View {
                     EmptyView()
                 case .picture(let image, let blur, let dim):
                     GeometryReader { proxy in
-                        Image(uiImage: image)
-                            .resizable()
-                            .scaledToFill()
-                            .frame(width: proxy.size.width, height: proxy.size.height)
-                            .blur(radius: blur, opaque: true)
-                            .clipped()
+                        Group {
+                            // Blurred once rather than on every frame the map
+                            // under the window moves — see `PreBlurredImage`.
+                            // A photograph shown sharp gets no filter at all.
+                            if blur > 0 {
+                                PreBlurredImage(
+                                    image: image,
+                                    radius: blur,
+                                    shortSide: PreBlurredImage.filledShortSide(of: image, in: proxy.size)
+                                )
+                            } else {
+                                Image(uiImage: image)
+                                    .resizable()
+                                    .scaledToFill()
+                            }
+                        }
+                        .frame(width: proxy.size.width, height: proxy.size.height)
+                        .clipped()
                     }
                     .overlay { theme.windowFill.opacity(dim) }
                     .transition(.opacity)
