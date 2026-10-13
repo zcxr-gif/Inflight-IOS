@@ -499,9 +499,9 @@ struct FlightHero: View {
     /// peak's whole sheet with it, spread open under the picture as it
     /// arrived. A header that changes size because a download finished is a
     /// layout jumping, not an image loading. Fixed, the photo fades into room
-    /// that was already there: an ordinary side-on airliner shot trims a
-    /// little sky to fill it, and a shape far from it is fitted onto its own
-    /// blurred backdrop — see `AircraftPhotoImage.cropTolerance`.
+    /// that was already there: a shot of very nearly its shape trims a sliver
+    /// to fill it, and any other is fitted whole onto its own blurred
+    /// backdrop — see `AircraftPhotoImage.cropTolerance`.
     ///
     /// `image` is no longer read, and is kept so the call sites say what the
     /// header is showing. The peak state hands in a ceiling; the full window
@@ -976,26 +976,23 @@ struct AircraftPhotoImage: View {
     /// Inside it the picture is trimmed to fill; outside it, the whole airframe
     /// is fitted with the backdrop behind it.
     ///
-    /// A quarter of the dimension being trimmed, because aircraft photography
-    /// is overwhelmingly side-on with the fuselage through the middle: what a
-    /// centre crop takes off a shot like that is sky and apron. It is not a
-    /// generous allowance so much as a realistic one — the hero's height is
-    /// worked out from the photograph's own ratio and would need almost none of
-    /// it, except that the peak then clamps that height against the screen, and
-    /// on a small phone the clamp is most of what this has to absorb.
-    ///
-    /// It applies to the height only. Trimming a photograph's *width* is
-    /// trimming the nose and the tail — the fuselage runs edge to edge in a
-    /// side-on shot — so a picture wider than its frame gets the whole airframe
-    /// on the backdrop rather than the scissors, however small the trim would
-    /// be. That case used to be rare, when each frame took its photograph's
-    /// own shape; since the frames became one fixed shape (see
-    /// `FlightHero.shape`) every 16:9 shot is one, and they were all losing
-    /// their ends. `sideTolerance` is the sliver that does not count.
-    private static let cropTolerance: CGFloat = 0.25
+    /// A sliver, and no more. It used to be a quarter of the height, on the
+    /// reasoning that aircraft photography is side-on with the fuselage
+    /// through the middle, so a centre crop takes off sky and apron. Plenty of
+    /// it is not: an aeroplane rotating, climbing out or on short final runs
+    /// corner to corner, with the fin near the top of the frame and the nose
+    /// near the bottom — and since the frames became one fixed shape (see
+    /// `FlightHero.shape`), the peek and every wide window were trimming up to
+    /// an eighth off each of those edges. That is the nose and the tail, cut
+    /// off the top and the bottom instead of the sides. A photograph that is
+    /// not the frame's shape is now fitted whole on its blurred backdrop,
+    /// whichever way it differs.
+    private static let cropTolerance: CGFloat = 0.04
 
-    /// How much of a photograph's width may go to fill the frame: a couple of
-    /// per cent, which is rounding at these sizes rather than airframe.
+    /// Trimming a photograph's *width* is trimming the nose and the tail of a
+    /// side-on shot, so a picture wider than its frame gets even less room —
+    /// a couple of per cent, which is rounding at these sizes rather than
+    /// airframe.
     private static let sideTolerance: CGFloat = 0.02
 
     /// Which photograph is on screen, as something comparable.
