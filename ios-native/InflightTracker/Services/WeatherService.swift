@@ -166,25 +166,51 @@ final class WeatherModel: ObservableObject {
 
         // Show the nearest field straight away, then upgrade to whichever of
         // the candidates actually has a report.
-        nearby = Station(role: .nearby, airport: closest, metar: WeatherService.shared.cached(closest.icao))
+        set(Station(role: .nearby, airport: closest, metar: WeatherService.shared.cached(closest.icao)), for: .nearby)
 
         for airport in candidates {
             WeatherService.shared.metar(for: airport.icao) { [weak self] metar in
                 guard let self = self, let metar = metar else { return }
                 guard self.nearby?.metar == nil || self.nearby?.airport.icao == airport.icao else { return }
-                self.nearby = Station(role: .nearby, airport: airport, metar: metar)
-                self.updatedAt = Date()
+                if self.set(Station(role: .nearby, airport: airport, metar: metar), for: .nearby) {
+                    self.updatedAt = Date()
+                }
             }
         }
     }
 
     /// The open flight's endpoints, or nothing when no flight is open.
+    ///
+    /// Asked on every packet while a flight is open, and almost always with
+    /// the same two fields and the same two reports. Everything here is
+    /// written only when it differs: this model is observed by the whole
+    /// screen, and an identical station written back — twice here, and twice
+    /// more as the cached reports came back a turn later — was every packet
+    /// redrawing the screen and the map three more times for nothing.
     func updateRoute(departure departureIcao: String?, arrival arrivalIcao: String?) {
-        departure = station(role: .departure, icao: departureIcao)
-        arrival = station(role: .arrival, icao: arrivalIcao)
+        set(station(role: .departure, icao: departureIcao), for: .departure)
+        set(station(role: .arrival, icao: arrivalIcao), for: .arrival)
 
         load(role: .departure, icao: departureIcao)
         load(role: .arrival, icao: arrivalIcao)
+    }
+
+    /// Writes a station when it is different from the one held, and says
+    /// whether it was.
+    @discardableResult
+    private func set(_ station: Station?, for role: Role) -> Bool {
+        switch role {
+        case .nearby:
+            guard nearby != station else { return false }
+            nearby = station
+        case .departure:
+            guard departure != station else { return false }
+            departure = station
+        case .arrival:
+            guard arrival != station else { return false }
+            arrival = station
+        }
+        return true
     }
 
     private func station(role: Role, icao: String?) -> Station? {
@@ -198,14 +224,7 @@ final class WeatherModel: ObservableObject {
         WeatherService.shared.metar(for: airport.icao) { [weak self] metar in
             guard let self = self else { return }
             let resolved = Station(role: role, airport: airport, metar: metar)
-
-            switch role {
-            case .departure: self.departure = resolved
-            case .arrival: self.arrival = resolved
-            case .nearby: self.nearby = resolved
-            }
-
-            self.updatedAt = Date()
+            if self.set(resolved, for: role) { self.updatedAt = Date() }
         }
     }
 }

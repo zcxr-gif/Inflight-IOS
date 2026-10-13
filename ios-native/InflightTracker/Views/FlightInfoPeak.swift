@@ -54,9 +54,9 @@ struct FlightInfoPeak: View {
     /// size while the photo loaded and another once it had — the row, and the
     /// whole sheet with it, grew under the picture as it arrived, and again
     /// whenever the carousel turned to a shot of a different shape. Fixed, the
-    /// photo fades into a frame that was already there. An ordinary side-on
-    /// shot loses a sliver of sky to fill it; anything stranger is fitted onto
-    /// its blurred backdrop — see `AircraftPhotoImage.cropTolerance`.
+    /// photo fades into a frame that was already there. A shot of very nearly
+    /// its shape loses a sliver to fill it; any other is fitted whole onto its
+    /// blurred backdrop — see `AircraftPhotoImage.cropTolerance`.
     private let thumbnailWidth: CGFloat = 148
     private let thumbnailHeight: CGFloat = 88
 

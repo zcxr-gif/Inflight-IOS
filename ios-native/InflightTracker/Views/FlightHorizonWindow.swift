@@ -1208,8 +1208,6 @@ struct FlightHorizonStatus: View {
     let track: [TrackPoint]
     let palette: HorizonPalette
 
-    @State private var pinging = false
-
     private struct StateLook {
         let title: String
         let detail: String
@@ -1263,16 +1261,10 @@ struct FlightHorizonStatus: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
 
                 ZStack {
-                    Circle()
-                        .fill(look.colour.opacity(0.6))
-                        .scaleEffect(pinging ? 2.6 : 1)
-                        .opacity(pinging ? 0 : 0.6)
+                    PulseRing(color: look.colour.opacity(0.6))
                     Circle().fill(look.colour)
                 }
                 .frame(width: 6, height: 6)
-                .onAppear {
-                    withAnimation(.easeOut(duration: 2.4).repeatForever(autoreverses: false)) { pinging = true }
-                }
             }
 
             Rectangle()

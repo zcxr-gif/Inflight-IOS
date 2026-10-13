@@ -243,6 +243,30 @@ struct ContentView: View {
     /// is a walk over the whole server, lower-casing a name per aircraft.
     @State private var friendsAloft = 0
 
+    /// Keeps the home-screen tiles fed. Cheap on every packet — the bridge
+    /// does the throttling, because only it knows what a widget would
+    /// actually notice. And the live banners, which otherwise carry whatever
+    /// estimate they were started with until the backend next pushes.
+    private func refreshWidgets() {
+        Perf.measure("Widgets") {
+            WidgetBridge.shared.update(flights: feed.flights, atcStations: feed.atcStations)
+            LiveActivityController.shared.refresh(with: feed.flights)
+        }
+    }
+
+    /// Everything derived from a packet, worked out once as it lands.
+    private func notePacket() {
+        Perf.measure("Packet bookkeeping") {
+            LogbookRecorder.shared.note(flights: feed.flights, server: feed.server)
+            refreshMyFlights()
+            refreshMapAirports()
+            refreshFriendsAloft()
+            if highlightPreferences.showsControllers {
+                controllerDirectory.note(flights: feed.flights)
+            }
+        }
+    }
+
     private func refreshMapAirports() {
         let fields = filters.showsAirports
             ? MapAirport.active(in: feed.flights, stations: feed.atcStations)
@@ -481,9 +505,22 @@ struct ContentView: View {
     /// Search runs over the whole packet rather than `visibleFlights` — a
     /// callsign you have typed out in full is one you want found, not one the
     /// altitude filter gets to hide.
+    ///
+    /// Remembered against the query and the packet. With something typed in
+    /// the field, every redraw of this screen — a packet, a chip, a window
+    /// moving — used to search the whole server and all seventeen thousand
+    /// fields again for the answer it already had.
     private var results: [MapSearchResult] {
-        MapSearch.results(for: query, in: feed.flights, limit: 6)
+        if query.isEmpty { return [] }
+        if let cached = searchCache.results(for: query, packet: feed.lastUpdate) { return cached }
+        let found = MapSearch.results(for: query, in: feed.flights, limit: 6)
+        searchCache.store(found, for: query, packet: feed.lastUpdate)
+        return found
     }
+
+    /// Where `results` keeps its last answer — a reference, like
+    /// `visibleFlightsCache`, so remembering is not a change.
+    @State private var searchCache = SearchCache()
 
     /// A stamp of everything that decides which aircraft the map should be
     /// drawing: the packet it came from, the filters narrowing it, and the one
@@ -1419,14 +1456,7 @@ struct ContentView: View {
         // is passing is re-resolved as it goes. The model only refetches once
         // the position has actually moved on.
         .onChange(of: feed.lastUpdate) { _, _ in
-            // Keeps the home-screen tiles fed. Cheap on every packet — the
-            // bridge does the throttling, because only it knows what a widget
-            // would actually notice.
-            WidgetBridge.shared.update(flights: feed.flights, atcStations: feed.atcStations)
-
-            // And the live banners, which otherwise carry whatever estimate
-            // they were started with until the backend next pushes.
-            LiveActivityController.shared.refresh(with: feed.flights)
+            refreshWidgets()
 
             // A widget tap waiting on the aircraft to appear in a packet.
             if let wanted = pendingFlightId {
@@ -1578,15 +1608,7 @@ struct ContentView: View {
         // Keyed on `lastUpdate` rather than on the array itself: `flights` is
         // rebuilt every packet, and comparing thousands of aircraft to decide
         // whether to look at them is the wrong way round.
-        .onChange(of: feed.lastUpdate) { _, _ in
-            LogbookRecorder.shared.note(flights: feed.flights, server: feed.server)
-            refreshMyFlights()
-            refreshMapAirports()
-            refreshFriendsAloft()
-            if highlightPreferences.showsControllers {
-                controllerDirectory.note(flights: feed.flights)
-            }
-        }
+        .onChange(of: feed.lastUpdate) { _, _ in notePacket() }
         .onChange(of: highlightPreferences.showsControllers) { _, isOn in
             if isOn { controllerDirectory.note(flights: feed.flights) }
         }
@@ -3004,6 +3026,23 @@ private struct CompassButton: View {
 
 /// The map's traffic, kept against the stamp it was built from — see
 /// `ContentView.visibleFlights`.
+/// The last search and what it found. See `ContentView.results`.
+final class SearchCache {
+    private var query: String?
+    private var packet: Date?
+    private var results: [MapSearchResult] = []
+
+    func results(for query: String, packet: Date?) -> [MapSearchResult]? {
+        self.query == query && self.packet == packet ? results : nil
+    }
+
+    func store(_ results: [MapSearchResult], for query: String, packet: Date?) {
+        self.query = query
+        self.packet = packet
+        self.results = results
+    }
+}
+
 final class TrafficCache {
     private var revision: Int?
     private var flights: [Flight] = []

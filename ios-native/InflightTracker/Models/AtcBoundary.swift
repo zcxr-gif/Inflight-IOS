@@ -98,7 +98,13 @@ final class AtcBoundaryStore {
 
     private let lock = NSLock()
     private var loaded = false
+    private var decoded = false
     private var sectors: [AtcSector] = []
+
+    /// Where the blob is decoded, one at a time: a preload in the background,
+    /// or a caller that cannot wait for one, which then waits for it here
+    /// rather than finding the store half-built.
+    private let loadQueue = DispatchQueue(label: "com.tracker.inflight.atc-boundaries", qos: .utility)
 
     /// Station name, upper-cased, to the sectors it lights. A list because a
     /// FIR split into a north and a south is two boundaries one controller
@@ -182,9 +188,33 @@ final class AtcBoundaryStore {
         Bundle.main.url(forResource: "atc-boundaries", withExtension: "bin") != nil
     }
 
+    /// Whether the boundaries have been decoded — or found missing, which
+    /// is as loaded as they will get.
+    var isLoaded: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return decoded
+    }
+
+    /// Decodes the boundaries off the main thread, then calls back on it.
+    ///
+    /// The blob is a few hundred kilobytes and fifty thousand coordinates,
+    /// and decoding it where it was first asked for — the map's update pass,
+    /// the moment the layer went on — was a stall of its own.
+    func preload(then completion: @escaping () -> Void) {
+        loadQueue.async { [self] in
+            decodeIfNeeded()
+            DispatchQueue.main.async(execute: completion)
+        }
+    }
+
     // MARK: - Reading the blob
 
     private func load() {
+        loadQueue.sync { decodeIfNeeded() }
+    }
+
+    private func decodeIfNeeded() {
         lock.lock()
         let alreadyLoaded = loaded
         loaded = true
@@ -198,6 +228,9 @@ final class AtcBoundaryStore {
             // and the rest of the map is untouched, which is the right way for
             // one absent file to fail.
             print("[atc] atc-boundaries.bin is missing from the bundle")
+            lock.lock()
+            self.decoded = true
+            lock.unlock()
             return
         }
 
@@ -206,6 +239,7 @@ final class AtcBoundaryStore {
         lock.lock()
         sectors = decoded.sectors
         aliases = decoded.aliases
+        self.decoded = true
         lock.unlock()
     }
 

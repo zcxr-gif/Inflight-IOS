@@ -65,24 +65,27 @@ final class GateStore: ObservableObject {
         }
         guard !inFlight.contains(icao) else { return }
 
-        if let cached = readCache(icao) {
-            states[icao] = .ready(cached)
-            return
-        }
-
         inFlight.insert(icao)
         states[icao] = .loading
 
-        Task { [weak self] in
-            let gates = await Self.fetch(icao: icao, at: airport.coordinate)
-            // Weak again on the way in rather than reaching for the outer
-            // closure's `self`, which is a mutable capture crossing into
-            // concurrent code — a warning today and an error under Swift 6.
+        Task {
+            // The file first, and off the main thread, where reading and
+            // parsing it was a stall in the panel opening over it.
+            let gates: [Gate]?
+            if let cached = Self.readCache(icao) {
+                gates = cached
+            } else {
+                gates = await Self.fetch(icao: icao, at: airport.coordinate)
+                if let gates { Self.writeCache(gates, for: icao) }
+            }
+
+            // Weak on the way in rather than captured by the task, which would
+            // be a mutable capture crossing into concurrent code — a warning
+            // today and an error under Swift 6.
             await MainActor.run { [weak self] in
                 guard let self = self else { return }
                 self.inFlight.remove(icao)
                 if let gates = gates {
-                    self.writeCache(gates, for: icao)
                     self.states[icao] = .ready(gates)
                 } else {
                     self.states[icao] = .failed
@@ -157,7 +160,7 @@ final class GateStore: ObservableObject {
 
     private static let cacheDirectoryName = "Gates"
 
-    private var cacheDirectory: URL? {
+    private static var cacheDirectory: URL? {
         guard let base = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first else {
             return nil
         }
@@ -166,11 +169,12 @@ final class GateStore: ObservableObject {
         return directory
     }
 
-    private func cacheURL(_ icao: String) -> URL? {
+    private static func cacheURL(_ icao: String) -> URL? {
         cacheDirectory?.appendingPathComponent("\(icao).json")
     }
 
-    private func readCache(_ icao: String) -> [Gate]? {
+    /// Safe off the main thread: it touches nothing but the file.
+    private static func readCache(_ icao: String) -> [Gate]? {
         guard let url = cacheURL(icao),
               let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
               let written = attributes[.modificationDate] as? Date,
@@ -190,7 +194,7 @@ final class GateStore: ObservableObject {
         }
     }
 
-    private func writeCache(_ gates: [Gate], for icao: String) {
+    private static func writeCache(_ gates: [Gate], for icao: String) {
         guard let url = cacheURL(icao) else { return }
         let rows = gates.map { gate in
             [

@@ -194,7 +194,16 @@ struct FlightWindowPane<Content: View>: View {
                     .strokeBorder(theme.stroke, lineWidth: 1)
             }
             .overlay(alignment: .top) { grabber }
-            .shadow(color: .black.opacity(0.28), radius: 24, y: 10)
+            // From the outline rather than from the pane — see `ShapeShadow`.
+            .background {
+                ShapeShadow(
+                    shape: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous),
+                    color: .black.opacity(0.28),
+                    radius: 24,
+                    y: 10
+                )
+                .allowsHitTesting(false)
+            }
             .environment(\.colorScheme, theme.colorScheme)
             .offset(dismissOffset)
             .opacity(1 - min(dismissDistance / 400, 0.35))

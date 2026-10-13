@@ -8,7 +8,8 @@ import Foundation
 /// is only asked about when the map is close enough to draw it, so panning
 /// across a continent costs nothing.
 ///
-/// Reads and writes on the main thread, like the app's other stores.
+/// Its state is read and written on the main thread, like the app's other
+/// stores; the cache file is read and written off it.
 final class AirportLayoutStore: ObservableObject {
 
     static let shared = AirportLayoutStore()
@@ -55,28 +56,32 @@ final class AirportLayoutStore: ObservableObject {
         }
         guard !inFlight.contains(icao) else { return }
 
-        if let cached = readCache(icao) {
-            states[icao] = .ready(cached)
-            return
-        }
-
         inFlight.insert(icao)
         states[icao] = .loading
 
-        Task { [weak self] in
-            let pieces = await Self.fetch(at: airport.coordinate)
-            // Weak again on the way in rather than reaching for the outer
-            // closure's `self`, which is a mutable capture crossing into
-            // concurrent code — a warning today and an error under Swift 6.
+        Task {
+            // The file first, and off the main thread. A big field is a few
+            // thousand ways of pavement, read and parsed at exactly the moment
+            // the map settles over it — on the main thread that was the frame
+            // the traffic over the field stopped moving for.
+            let layout: AirportLayout?
+            if let cached = Self.readCache(icao) {
+                layout = cached
+            } else {
+                layout = await Self.fetch(at: airport.coordinate).map { AirportLayout(icao: icao, pieces: $0) }
+                if let layout { Self.writeCache(layout) }
+            }
+
+            // Weak on the way in rather than captured by the task, which would
+            // be a mutable capture crossing into concurrent code — a warning
+            // today and an error under Swift 6.
             await MainActor.run { [weak self] in
                 guard let self = self else { return }
                 self.inFlight.remove(icao)
-                guard let pieces = pieces else {
+                guard let layout = layout else {
                     self.states[icao] = .failed
                     return
                 }
-                let layout = AirportLayout(icao: icao, pieces: pieces)
-                self.writeCache(layout)
                 self.states[icao] = .ready(layout)
             }
         }
@@ -294,7 +299,7 @@ final class AirportLayoutStore: ObservableObject {
 
     // MARK: - Cache
 
-    private var cacheDirectory: URL? {
+    private static var cacheDirectory: URL? {
         guard let base = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first else {
             return nil
         }
@@ -312,11 +317,12 @@ final class AirportLayoutStore: ObservableObject {
         return directory
     }
 
-    private func cacheURL(_ icao: String) -> URL? {
+    private static func cacheURL(_ icao: String) -> URL? {
         cacheDirectory?.appendingPathComponent("\(icao).json")
     }
 
-    private func readCache(_ icao: String) -> AirportLayout? {
+    /// Safe off the main thread: it touches nothing but the file.
+    private static func readCache(_ icao: String) -> AirportLayout? {
         guard let url = cacheURL(icao),
               let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
               let written = attributes[.modificationDate] as? Date,
@@ -350,7 +356,7 @@ final class AirportLayoutStore: ObservableObject {
         return AirportLayout(icao: icao, pieces: pieces)
     }
 
-    private func writeCache(_ layout: AirportLayout) {
+    private static func writeCache(_ layout: AirportLayout) {
         guard let url = cacheURL(layout.icao) else { return }
 
         // Coordinates flattened to a plain array of doubles: a field is a few

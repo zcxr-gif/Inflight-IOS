@@ -455,6 +455,7 @@ struct TrackerMapView: UIViewRepresentable {
             renderedGroundKey = nil
             renderedWindKey = nil
             renderedReplay = false
+            appliedMarkLift = nil
             directOrigin = nil
             directDestination = nil
             flownHeadWritten = nil
@@ -466,6 +467,10 @@ struct TrackerMapView: UIViewRepresentable {
         /// small key against what is already drawn and does nothing when it
         /// matches, which on an ordinary redraw is all of them.
         func update() {
+            Perf.measure("Map update") { applyUpdate() }
+        }
+
+        private func applyUpdate() {
             guard let mapView = mapView, let map = map else { return }
 
             applyOrnaments(on: mapView)
@@ -961,12 +966,28 @@ struct TrackerMapView: UIViewRepresentable {
         /// The visible box, widened, that the smoothing works inside.
         private var smoothingBox: (south: Double, north: Double, west: Double, east: Double)?
 
+        /// The visible box widened further, that the 3D models are drawn from.
+        /// Wider than the smoothing's: a model is tall, and down a tilted map
+        /// one standing just past the edge of the ground in view can still
+        /// reach into it.
+        private var modelBox: (south: Double, north: Double, west: Double, east: Double)?
+
         /// Whether a point is inside `smoothingBox` — or anywhere, before the
         /// camera has been seen.
         private func isInSmoothingBox(_ coordinate: CLLocationCoordinate2D) -> Bool {
             guard let box = smoothingBox else { return true }
             var longitude = coordinate.longitude
             if longitude < box.west { longitude += 360 }
+            return coordinate.latitude >= box.south && coordinate.latitude <= box.north
+                && longitude >= box.west && longitude <= box.east
+        }
+
+        /// Whether a point is inside `modelBox`, or anywhere before the camera
+        /// has been seen. Either side of the antimeridian.
+        private func isInModelBox(_ coordinate: CLLocationCoordinate2D) -> Bool {
+            guard let box = modelBox else { return true }
+            var longitude = coordinate.longitude
+            if longitude < box.west { longitude += 360 } else if longitude > box.east { longitude -= 360 }
             return coordinate.latitude >= box.south && coordinate.latitude <= box.north
                 && longitude >= box.west && longitude <= box.east
         }
@@ -1068,6 +1089,18 @@ struct TrackerMapView: UIViewRepresentable {
                 visible.north + padLatitude,
                 west,
                 east
+            )
+
+            // A whole span either side, and the whole way round once that
+            // reaches it.
+            let modelWest = west - longitudeSpan * 0.75
+            let modelEast = east + longitudeSpan * 0.75
+            let wraps = modelEast - modelWest >= 360
+            modelBox = (
+                visible.south - latitudeSpan,
+                visible.north + latitudeSpan,
+                wraps ? -540 : modelWest,
+                wraps ? 540 : modelEast
             )
 
             // The moving air is told where the camera is on every change: it
@@ -1176,11 +1209,13 @@ struct TrackerMapView: UIViewRepresentable {
         /// up to date — on the settle, and through a follow.
         private func syncRegionLayers() {
             guard isStyleLoaded, let map = map else { return }
-            syncAirports(on: map)
-            syncPrecipitation(on: map)
-            syncGround(on: map)
-            syncWinds(on: map)
-            syncWeatherTiles(on: map)
+            Perf.measure("Map settle") {
+                syncAirports(on: map)
+                syncPrecipitation(on: map)
+                syncGround(on: map)
+                syncWinds(on: map)
+                syncWeatherTiles(on: map)
+            }
 
             if let region = region, region.isUsable {
                 parent.onRegionSettled(region.center, region.span.latitudeDelta)
@@ -1286,7 +1321,7 @@ struct TrackerMapView: UIViewRepresentable {
             guard syncedTrafficRevision != parent.trafficRevision || trafficPropertiesStale else { return }
             if syncedTrafficRevision != parent.trafficRevision {
                 syncedTrafficRevision = parent.trafficRevision
-                applyPacket(parent.flights)
+                Perf.measure("Traffic packet") { applyPacket(parent.flights) }
 
                 packetsSinceSweep += 1
                 if packetsSinceSweep >= Self.packetsPerSweep { trafficPropertiesStale = true }
@@ -1426,13 +1461,26 @@ struct TrackerMapView: UIViewRepresentable {
         /// When most of the source has changed anyway, one full write is
         /// cheaper than a long list of partial ones, so it does that instead.
         private func pushTraffic() {
+            Perf.measure("Traffic write") { writeTraffic() }
+        }
+
+        private func writeTraffic() {
             guard isStyleLoaded, let map = map else { return }
 
+            // Every aeroplane's properties are built again, but kept to compare
+            // against: the sweep every few packets, a pilot's colour changing
+            // or a logo landing rewrites only the aeroplanes that actually
+            // came out different. It used to rewrite the whole server — a
+            // full re-tile of the traffic every eighth packet, for a sweep
+            // that almost always changes nothing. When most of them did
+            // change, the rule below still makes it one full write.
+            var previous: [String: JSONObject] = [:]
             if trafficPropertiesStale {
                 trafficPropertiesStale = false
                 packetsSinceSweep = 0
-                trafficProperties.removeAll(keepingCapacity: true)
-                trafficNeedsFullWrite = true
+                previous = trafficProperties
+                trafficProperties = [:]
+                trafficProperties.reserveCapacity(previous.count)
             }
 
             var added: [Feature] = []
@@ -1440,8 +1488,16 @@ struct TrackerMapView: UIViewRepresentable {
 
             for (id, marker) in markers {
                 let fresh = trafficProperties[id] == nil
+                var rebuilt = fresh
                 if fresh {
-                    trafficProperties[id] = properties(for: marker)
+                    let built = properties(for: marker)
+                    if var old = previous[id] {
+                        // The heading is written in per frame; everything
+                        // else is what was built.
+                        old["heading"] = nil
+                        rebuilt = old != built
+                    }
+                    trafficProperties[id] = built
                     trafficSignatures[id] = Self.signature(of: marker.flight)
                 }
 
@@ -1449,7 +1505,7 @@ struct TrackerMapView: UIViewRepresentable {
 
                 if !trafficInSource.contains(id) {
                     added.append(trafficFeature(for: marker))
-                } else if fresh || Self.hasMoved(marker) {
+                } else if rebuilt || Self.hasMoved(marker) {
                     updated.append(trafficFeature(for: marker))
                 }
             }
@@ -1647,15 +1703,30 @@ struct TrackerMapView: UIViewRepresentable {
             return SIMD4<Float>(Float(red), Float(green), Float(blue), share)
         }
 
-        /// Hands the engine every modelled aeroplane as it is drawn on this
-        /// frame — where it is, how high, which way up, what colour — and asks
-        /// the map to draw a frame for it.
+        /// When the map last drew a frame for the models' sake.
+        private var engineRepaintedAt: CFTimeInterval = 0
+
+        /// How often the map is redrawn for nothing but flashing beacons. A
+        /// flash is an eighth of a second, so this catches every one.
+        private static let beaconRepaintInterval: CFTimeInterval = 1.0 / 20
+
+        /// Hands the engine every modelled aeroplane near the screen as it is
+        /// drawn on this frame — where it is, how high, which way up, what
+        /// colour — and asks the map for a frame when that picture changed.
+        ///
+        /// Only the ones near the screen. The engine works out each one's place,
+        /// the ground under it and its sunlight on every frame it draws, and
+        /// for one on the far side of the world that is all spent on a model
+        /// that is then culled. And only when something changed: a repaint is a
+        /// whole frame of the map, and the engine already rides along on every
+        /// frame the camera asks for.
         private func feedEngine(at now: CFTimeInterval) {
             let replay = replayAircraft(at: now)
             guard parent.aircraftModels != .off, !modelled.isEmpty || replay != nil else {
                 if engineFed {
                     engine.update([])
                     engineFed = false
+                    _ = engine.takeChange()
                     map?.triggerRepaint()
                 }
                 return
@@ -1670,6 +1741,8 @@ struct TrackerMapView: UIViewRepresentable {
             list.reserveCapacity(modelled.count)
             for (id, model) in modelled {
                 guard let marker = markers[id] else { continue }
+                // The open one whatever: the camera may be following it in.
+                guard id == selectedId || isInModelBox(marker.coordinate) else { continue }
                 let pitch: Double
                 let bank: Double
                 if let own = ownAttitude, own.flightId == id {
@@ -1700,7 +1773,44 @@ struct TrackerMapView: UIViewRepresentable {
             if let replay { list.append(replay) }
             engine.update(list)
             engineFed = true
-            map?.triggerRepaint()
+
+            let flashing = engine.isShowingLights
+                && now - engineRepaintedAt >= Self.beaconRepaintInterval
+            if engine.takeChange() || flashing {
+                engineRepaintedAt = now
+                map?.triggerRepaint()
+            }
+        }
+
+        /// The height the open aircraft's callsign and logo were last lifted
+        /// to, in metres above the ground. Nil when nothing has been written
+        /// since the style loaded, which starts them on the ground.
+        private var appliedMarkLift: Double?
+
+        /// Lifts the open aircraft's callsign and VA logo to the height its
+        /// model is drawn at.
+        ///
+        /// The marks are Mapbox symbols on the aeroplane's ground position, and
+        /// a flat icon is drawn there too, so on a flat map the two meet. A
+        /// model is not: it is flown at its real height, and down a tilted map
+        /// an airliner at cruise is drawn eleven kilometres above the point its
+        /// callsign was pinned to — the name hanging in the middle of the
+        /// screen, nowhere near the aeroplane it names. The selected layers are
+        /// raised to the model with `symbol-z-offset` (a paint property, so
+        /// nothing is laid out again), written only when the height has moved
+        /// by enough to see.
+        private func liftSelectedMarks(at now: CFTimeInterval) {
+            guard let map = map else { return }
+            var lift = 0.0
+            if parent.aircraftModels != .off, let id = parent.selection?.id,
+               modelled[id] != nil, let marker = markers[id] {
+                lift = AircraftModelStyle.drawnLift(heightMetres: modelHeight(for: marker, at: now))
+            }
+            if let applied = appliedMarkLift, abs(applied - lift) < max(2, applied * 0.005) { return }
+            appliedMarkLift = lift
+            for layer in [Layer.selectedLabel, Layer.selectedMark] where map.layerExists(withId: layer) {
+                try? map.setLayerProperty(for: layer, property: "symbol-z-offset", value: lift)
+            }
         }
 
         /// How high a model is flown, in metres above the ground: the
@@ -3020,11 +3130,29 @@ struct TrackerMapView: UIViewRepresentable {
         /// Draws the airspace of every sector somebody is working. Keyed on
         /// the stations, so a packet that changes nothing about who is on
         /// frequency costs one string comparison.
+        /// Whether the ATC boundaries are being decoded for the layer.
+        private var isPreloadingAtc = false
+
         private func syncAtcBoundaries(on map: MapboxMap) {
             guard parent.showsAtcBoundaries else {
                 if renderedAtcKey != nil {
                     clear(Source.atc)
                     renderedAtcKey = nil
+                }
+                return
+            }
+
+            // The boundaries are decoded off the main thread the first time
+            // they are wanted, and drawn when they land.
+            let boundaries = AtcBoundaryStore.shared
+            guard boundaries.isLoaded else {
+                guard !isPreloadingAtc else { return }
+                isPreloadingAtc = true
+                boundaries.preload { [weak self] in
+                    guard let self else { return }
+                    self.isPreloadingAtc = false
+                    guard self.isStyleLoaded, let map = self.map else { return }
+                    self.syncAtcBoundaries(on: map)
                 }
                 return
             }
@@ -3044,7 +3172,7 @@ struct TrackerMapView: UIViewRepresentable {
             }
 
             var features: [Feature] = []
-            for active in AtcBoundaryStore.shared.activeSectors(for: centres) {
+            for active in boundaries.activeSectors(for: centres) {
                 for ring in active.sector.rings where ring.count >= 3 {
                     features.append(Self.polygonFeature([ring], ["sector": .string(active.sector.id)]))
                 }
@@ -3442,6 +3570,23 @@ struct TrackerMapView: UIViewRepresentable {
         private var lastFlightTick: CFTimeInterval = 0
         private var flyingCount = 0
 
+        /// When the carried traffic was last written to the map.
+        private var lastTrafficWrite: CFTimeInterval = 0
+
+        /// How often the carried traffic is written: thirty times a second,
+        /// every other frame of the clock. The planet carries its traffic at
+        /// the same rate.
+        ///
+        /// What a write costs is mostly not the aeroplanes in it. Every write
+        /// sends Mapbox back to re-tile and re-lay out each tile it touches,
+        /// and the aeroplanes due on any one frame are scattered over every
+        /// tile on screen — so sixty writes a second was every traffic tile
+        /// laid out sixty times a second, and thirty is half of that for the
+        /// same aeroplanes moving by the same steps. The open aircraft is
+        /// still written on every frame: the follow puts the camera on it
+        /// frame by frame, and a sprite a frame behind the camera shivers.
+        private static let trafficWriteInterval: CFTimeInterval = 1.0 / 30
+
         private func startFlying() {
             guard flightLink == nil else { return }
             let link = CADisplayLink(target: self, selector: #selector(flyOneFrame))
@@ -3462,6 +3607,10 @@ struct TrackerMapView: UIViewRepresentable {
         }
 
         @objc private func flyOneFrame(_ link: CADisplayLink) {
+            Perf.measure("Traffic frame") { fly(link) }
+        }
+
+        private func fly(_ link: CADisplayLink) {
             let now = link.timestamp
             let elapsed = now - lastFlightTick
             lastFlightTick = now
@@ -3480,6 +3629,7 @@ struct TrackerMapView: UIViewRepresentable {
             refreshSky(force: false)
             stepWindParticles(at: now)
             stepOwnModel()
+            liftSelectedMarks(at: now)
 
             let smoothing = parent.smoothsTraffic
             guard smoothing || flyingCount > 0 || sweptOnMap > 0 else { return }
@@ -3506,7 +3656,13 @@ struct TrackerMapView: UIViewRepresentable {
             // The aircraft the camera is following is always carried, so the
             // camera has a smooth path to move along. Read once a frame rather
             // than once an aeroplane: the selection is a binding.
-            let followedId = parent.isFollowing ? parent.selection?.id : nil
+            let selectedId = parent.selection?.id
+            let followedId = parent.isFollowing ? selectedId : nil
+
+            // A little short of the interval, so a clock running at sixty
+            // lands on every other frame rather than drifting to every third.
+            let writesAll = now - lastTrafficWrite >= Self.trafficWriteInterval - 0.004
+            if writesAll { lastTrafficWrite = now }
 
             for marker in markers.values {
                 // Cheapest first: is it on screen, and is it being carried.
@@ -3527,7 +3683,8 @@ struct TrackerMapView: UIViewRepresentable {
                     && (smoothing || marker.flight.requiresSmoothing || marker.flightId == followedId)
                     && marker.flight.isWorthSmoothing
 
-                if wanted != was {
+                let switched = wanted != was
+                if switched {
                     if wanted { marker.beginMotion(now: now) } else { marker.endMotion() }
                 }
 
@@ -3537,6 +3694,11 @@ struct TrackerMapView: UIViewRepresentable {
                 }
 
                 guard marker.isSmoothing || was else { continue }
+                // Between writes the motion is still advanced, so nothing is
+                // lost — the next write puts each aeroplane where it has got
+                // to. One that has just stopped being carried goes back on
+                // its packet now, since nothing visits it again.
+                guard writesAll || switched || marker.flightId == selectedId else { continue }
                 if marker.needsWrite(pointsPerMetre: pointsPerMetre) {
                     changed.append(trafficFeature(for: marker))
                 }
