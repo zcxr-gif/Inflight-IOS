@@ -326,6 +326,7 @@
 "Whatever you pinned in the app, or the flight closest to landing" = "アプリで固定したもの、または着陸に最も近いフライト";
 "Which aircraft this widget follows." = "このウィジェットが追う機体。";
 "Close the flight window" = "フライトウィンドウを閉じる";
+"Close the map window" = "地図ウィンドウを閉じる";
 "Airline colours" = "航空会社の色";
 "BACKGROUND" = "背景";
 "Behind their name" = "名前の背後";

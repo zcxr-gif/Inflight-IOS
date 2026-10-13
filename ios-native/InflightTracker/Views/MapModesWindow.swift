@@ -22,14 +22,29 @@ struct MapModesWindow: View {
     /// to tidy up — the ruler has nowhere to be on the drawn planet.
     var onProjectionChanged: (MapProjection) -> Void = { _ in }
 
+    /// Whether the window runs side to side, the way the flight window does on
+    /// a phone. On a screen with room for the flight window's column it stands
+    /// as a column of its own instead, rather than a strip across a tablet.
+    var fillsWidth = true
+
+    /// The band along the foot of the screen the home indicator sits in. The
+    /// window stands down into it, as the flight window does, and its content
+    /// stops above it.
+    var bottomInset: CGFloat = 0
+
     @ObservedObject private var appearance = FlightInfoAppearance.shared
     @ObservedObject private var entitlements = Entitlements.shared
 
     @State private var paywallFeature: ProFeature = .mapCustomise
     @State private var isShowingPaywall = false
 
-    /// How far a pull on the header has carried the window down.
-    @GestureState private var pull: CGFloat = 0
+    /// How far a pull on the header has carried the window down. Let go on
+    /// the same spring as the flight window, so a pull that stops short eases
+    /// back rather than snapping.
+    @GestureState(resetTransaction: Transaction(animation: Motion.chrome))
+    private var pull: CGFloat = 0
+
+    @GestureState private var isHeld = false
 
     private var theme: FlightInfoTheme { appearance.theme }
     private var look: MapLook { appearance.resolvedMapStyle }
@@ -40,8 +55,14 @@ struct MapModesWindow: View {
         palette.scheme ?? appearance.resolvedScheme
     }
 
-    private static let cornerRadius: CGFloat = 30
     private static let tileSide: CGFloat = 70
+
+    /// How wide the window stands where it does not run side to side.
+    private static let columnWidth: CGFloat = 560
+
+    /// How far a pull has to go, or be heading, to put the window away. The
+    /// flight window's own distance, so the two answer one gesture alike.
+    private static let closeTravel: CGFloat = FlightWindowDockMetrics.closeTravel
 
     var body: some View {
         VStack(spacing: 0) {
@@ -55,16 +76,26 @@ struct MapModesWindow: View {
                     .scrollBounceBehavior(.basedOnSize)
             }
         }
-        .frame(maxWidth: 560)
+        .padding(.bottom, bottomInset)
+        // Standing on the bottom edge the way the flight window does: side to
+        // side, rounded along the top, square along the foot, where the
+        // display's own corners do the rounding. It used to float as a card
+        // with a margin all round it and four corners of its own — the one
+        // window in the app that did, next to a flight window that runs
+        // edge to edge.
+        .frame(maxWidth: fillsWidth ? .infinity : Self.columnWidth)
         .background { theme.sheetBackground }
-        .clipShape(RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous))
+        .clipShape(BottomEdge.shape)
         .overlay {
-            RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous)
-                .strokeBorder(theme.stroke, lineWidth: 1)
+            BottomEdge.shape
+                .stroke(theme.stroke, lineWidth: 1)
+                .allowsHitTesting(false)
         }
         // Out of the dock's island, like every window — see `WindowBirth`.
-        .bornFromDock(theme: theme, topRadius: Self.cornerRadius, bottomRadius: Self.cornerRadius)
-        .shadow(color: .black.opacity(0.25), radius: 22, y: 6)
+        // Square at the foot, so it opens out to the sides of the screen
+        // exactly as the flight window does.
+        .bornFromDock(theme: theme, topRadius: BottomEdge.cornerRadius, bottomRadius: 0)
+        .shadow(color: .black.opacity(0.22), radius: 18, y: -2)
         .offset(y: max(pull, 0))
         .environment(\.colorScheme, theme.colorScheme)
         .sheet(isPresented: $isShowingPaywall) { ProPanel(highlighted: paywallFeature) }
@@ -72,37 +103,37 @@ struct MapModesWindow: View {
 
     // MARK: - Header
 
+    /// The pill along the top and the window's name under it. No close
+    /// button: the pill is the way out, as it is on the flight window — a tap
+    /// on it, or a pull down anywhere along the header.
     private var header: some View {
-        ZStack {
+        VStack(spacing: 2) {
+            WindowGrabber(theme: theme, isHeld: isHeld)
+                .frame(width: 132)
+                .onTapGesture { onClose() }
+                .accessibilityElement()
+                .accessibilityLabel(L("Close the map window"))
+                .accessibilityAddTraits(.isButton)
+                .accessibilityAction { onClose() }
+
             Text("Map")
                 .font(.system(size: 19, weight: .bold))
                 .foregroundStyle(theme.textPrimary)
-
-            HStack {
-                Spacer()
-                Button(action: onClose) {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 14, weight: .bold))
-                        .foregroundStyle(theme.textPrimary)
-                        .frame(width: 34, height: 34)
-                        .flightInfoSurface(theme, in: Circle(), interactive: true)
-                        .contentShape(Circle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Close")
-            }
         }
-        .padding(.horizontal, 16)
-        .padding(.top, 16)
+        .frame(maxWidth: .infinity)
         .padding(.bottom, 6)
         .contentShape(Rectangle())
         // A pull down on the header puts the window away, the way every other
         // window in the app goes.
         .gesture(
-            DragGesture(minimumDistance: 6)
+            DragGesture(minimumDistance: 6, coordinateSpace: .global)
+                .updating($isHeld) { _, state, _ in state = true }
                 .updating($pull) { value, state, _ in state = value.translation.height }
                 .onEnded { value in
-                    if value.predictedEndTranslation.height > 90 { onClose() }
+                    if value.translation.height > Self.closeTravel
+                        || value.predictedEndTranslation.height > Self.closeTravel * 1.6 {
+                        onClose()
+                    }
                 }
         )
     }

@@ -1082,10 +1082,13 @@ struct AircraftPhotoImage: View {
                 .scaledToFill()
         } else {
             ZStack {
-                Image(uiImage: image)
-                    .resizable()
-                    .scaledToFill()
-                    .blur(radius: 18, opaque: true)
+                // Blurred once rather than on every frame — see
+                // `PreBlurredImage`.
+                PreBlurredImage(
+                    image: image,
+                    radius: 18,
+                    shortSide: PreBlurredImage.filledShortSide(of: image, in: frame)
+                )
                     // Blur samples past the edges, so oversize the backdrop
                     // rather than letting it fade out at the frame.
                     .scaleEffect(1.2)

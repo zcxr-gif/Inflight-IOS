@@ -66,7 +66,9 @@ final class SkyPhotos: ObservableObject {
             guard let self = self, let url = photos.first?.url else { return }
 
             URLSession.shared.dataTask(with: url) { data, _, _ in
-                guard let data = data, let decoded = UIImage(data: data) else { return }
+                // Decoded here rather than on the frame that first draws it.
+                // See `DecodedImage`.
+                guard let data = data, let decoded = DecodedImage.from(data, longestSide: 2_400) else { return }
                 Self.cache.setObject(decoded, forKey: key as NSString)
 
                 DispatchQueue.main.async { [weak self] in

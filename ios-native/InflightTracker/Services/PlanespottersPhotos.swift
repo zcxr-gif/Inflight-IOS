@@ -250,7 +250,9 @@ final class PlanespottersImageLoader: ObservableObject {
         // The same no-disk session the lookup uses — see `PlanespottersPhotos`.
         let task = PlanespottersPhotos.shared.imageSession.dataTask(with: url) {
             [weak self] data, _, _ in
-            guard let data = data, let decoded = UIImage(data: data) else { return }
+            // Decoded here, whole and unaltered, rather than on the main thread
+            // in the frame that first shows it. See `DecodedImage`.
+            guard let data = data, let decoded = DecodedImage.from(data) else { return }
             DispatchQueue.main.async {
                 guard let self = self, self.requested == url else { return }
                 self.image = decoded
