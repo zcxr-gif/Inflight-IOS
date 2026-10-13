@@ -455,6 +455,7 @@ struct TrackerMapView: UIViewRepresentable {
             renderedGroundKey = nil
             renderedWindKey = nil
             renderedReplay = false
+            appliedMarkLift = nil
             directOrigin = nil
             directDestination = nil
             flownHeadWritten = nil
@@ -1778,6 +1779,37 @@ struct TrackerMapView: UIViewRepresentable {
             if engine.takeChange() || flashing {
                 engineRepaintedAt = now
                 map?.triggerRepaint()
+            }
+        }
+
+        /// The height the open aircraft's callsign and logo were last lifted
+        /// to, in metres above the ground. Nil when nothing has been written
+        /// since the style loaded, which starts them on the ground.
+        private var appliedMarkLift: Double?
+
+        /// Lifts the open aircraft's callsign and VA logo to the height its
+        /// model is drawn at.
+        ///
+        /// The marks are Mapbox symbols on the aeroplane's ground position, and
+        /// a flat icon is drawn there too, so on a flat map the two meet. A
+        /// model is not: it is flown at its real height, and down a tilted map
+        /// an airliner at cruise is drawn eleven kilometres above the point its
+        /// callsign was pinned to — the name hanging in the middle of the
+        /// screen, nowhere near the aeroplane it names. The selected layers are
+        /// raised to the model with `symbol-z-offset` (a paint property, so
+        /// nothing is laid out again), written only when the height has moved
+        /// by enough to see.
+        private func liftSelectedMarks(at now: CFTimeInterval) {
+            guard let map = map else { return }
+            var lift = 0.0
+            if parent.aircraftModels != .off, let id = parent.selection?.id,
+               modelled[id] != nil, let marker = markers[id] {
+                lift = AircraftModelStyle.drawnLift(heightMetres: modelHeight(for: marker, at: now))
+            }
+            if let applied = appliedMarkLift, abs(applied - lift) < max(2, applied * 0.005) { return }
+            appliedMarkLift = lift
+            for layer in [Layer.selectedLabel, Layer.selectedMark] where map.layerExists(withId: layer) {
+                try? map.setLayerProperty(for: layer, property: "symbol-z-offset", value: lift)
             }
         }
 
@@ -3597,6 +3629,7 @@ struct TrackerMapView: UIViewRepresentable {
             refreshSky(force: false)
             stepWindParticles(at: now)
             stepOwnModel()
+            liftSelectedMarks(at: now)
 
             let smoothing = parent.smoothsTraffic
             guard smoothing || flyingCount > 0 || sweptOnMap > 0 else { return }
