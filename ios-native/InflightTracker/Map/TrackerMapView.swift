@@ -1466,11 +1466,20 @@ struct TrackerMapView: UIViewRepresentable {
         private func writeTraffic() {
             guard isStyleLoaded, let map = map else { return }
 
+            // Every aeroplane's properties are built again, but kept to compare
+            // against: the sweep every few packets, a pilot's colour changing
+            // or a logo landing rewrites only the aeroplanes that actually
+            // came out different. It used to rewrite the whole server — a
+            // full re-tile of the traffic every eighth packet, for a sweep
+            // that almost always changes nothing. When most of them did
+            // change, the rule below still makes it one full write.
+            var previous: [String: JSONObject] = [:]
             if trafficPropertiesStale {
                 trafficPropertiesStale = false
                 packetsSinceSweep = 0
-                trafficProperties.removeAll(keepingCapacity: true)
-                trafficNeedsFullWrite = true
+                previous = trafficProperties
+                trafficProperties = [:]
+                trafficProperties.reserveCapacity(previous.count)
             }
 
             var added: [Feature] = []
@@ -1478,8 +1487,16 @@ struct TrackerMapView: UIViewRepresentable {
 
             for (id, marker) in markers {
                 let fresh = trafficProperties[id] == nil
+                var rebuilt = fresh
                 if fresh {
-                    trafficProperties[id] = properties(for: marker)
+                    let built = properties(for: marker)
+                    if var old = previous[id] {
+                        // The heading is written in per frame; everything
+                        // else is what was built.
+                        old["heading"] = nil
+                        rebuilt = old != built
+                    }
+                    trafficProperties[id] = built
                     trafficSignatures[id] = Self.signature(of: marker.flight)
                 }
 
@@ -1487,7 +1504,7 @@ struct TrackerMapView: UIViewRepresentable {
 
                 if !trafficInSource.contains(id) {
                     added.append(trafficFeature(for: marker))
-                } else if fresh || Self.hasMoved(marker) {
+                } else if rebuilt || Self.hasMoved(marker) {
                     updated.append(trafficFeature(for: marker))
                 }
             }
