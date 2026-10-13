@@ -479,6 +479,9 @@ struct TrackerMapView: UIViewRepresentable {
             guard isStyleLoaded else { return }
 
             applyZoomFloor()
+            // Ahead of the follow and the command, so a camera move asked for
+            // on this same pass lands over it rather than being undone by it.
+            releaseStalePadding()
             syncTerminator(on: map)
             syncMeasurement(on: map)
             syncWeatherTiles(on: map)
@@ -689,6 +692,55 @@ struct TrackerMapView: UIViewRepresentable {
             if let applied = appliedZoomFloor, applied.zoom == zoom, applied.height == height { return }
             appliedZoomFloor = (zoom, height)
             try? map.setCameraBounds(with: CameraBoundsOptions(minZoom: CGFloat(zoom)))
+        }
+
+        /// What the chrome stood on the map's edges last time it was looked at.
+        private var appliedChromeInsets: (bottom: CGFloat, leading: CGFloat, trailing: CGFloat)?
+
+        /// Hands the camera back its padding once the window it was keeping
+        /// clear of has gone.
+        ///
+        /// The follow, `pan` and `focus` all centre with the window as the
+        /// camera's padding, and Mapbox keeps a padding until something else is
+        /// given — nothing ever was, so it outlived the window. Mapbox holds the
+        /// world's edges to the whole map, not to the padded part, while the
+        /// padding draws everything half of it higher: zoomed out, the bottom
+        /// of the world rose off the foot of the screen and left the sky
+        /// showing under it, for as long as the app stayed open.
+        ///
+        /// Recentred on whatever is in the middle of the screen, so nothing
+        /// moves unless it was standing past the edge of the world — and that
+        /// eases back down rather than snapping.
+        private func releaseStalePadding() {
+            guard let mapView = mapView, let map = map else { return }
+            let insets = (bottom: parent.bottomInset, leading: parent.leadingInset, trailing: parent.trailingInset)
+            let previous = appliedChromeInsets
+            appliedChromeInsets = insets
+            guard let previous else { return }
+
+            // Only when the chrome has stepped back, and no window is open to
+            // keep clear of.
+            let shrank = insets.bottom < previous.bottom
+                || insets.leading < previous.leading
+                || insets.trailing < previous.trailing
+            guard shrank, parent.selection == nil, !isGestureActive else { return }
+
+            // The globe has no edge to show, and is left as it was.
+            guard appliedProjection != .globe else { return }
+
+            let state = map.cameraState
+            guard state.padding != .zero else { return }
+            let bounds = mapView.bounds
+            guard bounds.width > 1, bounds.height > 1 else { return }
+
+            let middle = map.coordinate(for: CGPoint(x: bounds.midX, y: bounds.midY))
+            guard CLLocationCoordinate2DIsValid(middle) else { return }
+            let centre = Self.flatCentre(middle, zoom: Double(state.zoom), height: bounds.height)
+
+            mapView.camera.ease(
+                to: CameraOptions(center: centre, padding: .zero),
+                duration: 0.45
+            )
         }
 
         /// The nearest centre to `centre` at which a flat map this tall, at this
