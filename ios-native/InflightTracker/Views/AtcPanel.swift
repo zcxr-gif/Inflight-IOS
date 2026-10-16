@@ -16,6 +16,8 @@ struct AtcPanel: View {
     /// open. The list itself is redrawn by the feed.
     @State private var now = Date()
 
+    @State private var isShowingBoard = false
+
     private let clock = Timer.publish(every: 60, on: .main, in: .common).autoconnect()
 
     private var theme: FlightInfoTheme { appearance.theme }
@@ -30,6 +32,14 @@ struct AtcPanel: View {
 
     var body: some View {
         MapPanel(title: "ATC", subtitle: subtitle) {
+            PanelSection(title: "RATEMYATC") {
+                PanelActionRow(
+                    title: "RateMyATC board",
+                    symbol: "star.bubble",
+                    detail: "Top-rated controllers, most kudos, and who's on now."
+                ) { isShowingBoard = true }
+            }
+
             if feed.atcStations.isEmpty {
                 PanelSection(title: "ON FREQUENCY") {
                     PanelEmptyState(
@@ -64,6 +74,9 @@ struct AtcPanel: View {
             }
         }
         .onReceive(clock) { now = $0 }
+        .sheet(isPresented: $isShowingBoard) {
+            RateMyAtcBoard().environmentObject(feed)
+        }
     }
 
     private var subtitle: String {
@@ -82,12 +95,15 @@ struct AtcPanel: View {
 
     // MARK: - Rows
 
+    /// The header opens the field. The controllers under it are not part of
+    /// that button, because each has kudos and rating buttons of its own and a
+    /// tap on one must not also open the airport.
     private func stationRow(_ station: AtcStation) -> some View {
-        Button {
-            guard let airport = station.airport else { return }
-            onSelectAirport(airport)
-        } label: {
-            VStack(alignment: .leading, spacing: 9) {
+        VStack(alignment: .leading, spacing: 9) {
+            Button {
+                guard let airport = station.airport else { return }
+                onSelectAirport(airport)
+            } label: {
                 HStack(spacing: 8) {
                     Text(L(station.identifier))
                         .font(.system(size: 17, weight: .heavy, design: .rounded))
@@ -114,19 +130,19 @@ struct AtcPanel: View {
                             .foregroundStyle(theme.textDim)
                     }
                 }
-
-                ForEach(station.facilities) { facility in
-                    PanelFacilityLine(facility: facility, now: now)
-                }
+                .contentShape(Rectangle())
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 12)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .contentShape(Rectangle())
+            .buttonStyle(.plain)
+            // Nothing to open for a field the dataset doesn't have.
+            .disabled(station.airport == nil)
+
+            ForEach(station.facilities) { facility in
+                AtcFacilityKudosLine(facility: facility, now: now)
+            }
         }
-        .buttonStyle(.plain)
-        // Nothing to open for a field the dataset doesn't have.
-        .disabled(station.airport == nil)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func centerRow(_ station: AtcStation) -> some View {
@@ -137,7 +153,7 @@ struct AtcPanel: View {
                 .flightInfoLine(minimumScale: 0.7)
 
             ForEach(station.facilities) { facility in
-                PanelFacilityLine(facility: facility, now: now)
+                AtcFacilityKudosLine(facility: facility, now: now)
             }
         }
         .padding(.horizontal, 14)

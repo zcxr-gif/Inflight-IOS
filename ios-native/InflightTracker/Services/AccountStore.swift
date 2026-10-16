@@ -270,6 +270,7 @@ final class AccountStore: ObservableObject {
         // next one.
         ProfileStore.shared.accountChanged()
         PilotDirectory.shared.accountChanged()
+        AtcKudosStore.shared.accountChanged()
         // And the flight plans, for exactly the same reason: they are one
         // pilot's intentions, and the next person to sign in on this phone
         // must not find them sitting in the panel.
@@ -333,6 +334,7 @@ final class AccountStore: ObservableObject {
             Entitlements.shared.accountChanged()
             ProfileStore.shared.accountChanged()
             PilotDirectory.shared.accountChanged()
+            AtcKudosStore.shared.accountChanged()
             // The flight plans too, exactly as on the way out of a sign-out.
             // They are one pilot's intentions, filed against an account that
             // no longer exists, and leaving them in the panel is most of what
@@ -514,6 +516,7 @@ final class AccountStore: ObservableObject {
         // has does not need it before the map appears.
         ProfileStore.shared.accountChanged()
         PilotDirectory.shared.accountChanged()
+        AtcKudosStore.shared.accountChanged()
 
         // And the device now has an account for the server to reach it by, for
         // the one notification that is about this pilot's own flight rather

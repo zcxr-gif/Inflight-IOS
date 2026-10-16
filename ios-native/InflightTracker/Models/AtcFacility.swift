@@ -76,6 +76,11 @@ struct AtcFacility: Identifiable, Equatable {
     let kind: Kind
     let controller: String
 
+    /// The controller's Infinite Flight account id. What kudos and ratings are
+    /// filed against — a display name can change, the id cannot. Nil when the
+    /// backend left it out, and then there is nobody to thank.
+    let controllerId: String?
+
     /// ICAO of the field, or the FIR's identifier for a centre.
     let station: String
 
@@ -91,6 +96,10 @@ struct AtcFacility: Identifiable, Equatable {
     /// A centre works an airspace, not an airport, so its identifier will not
     /// be in the airport dataset — worth knowing before trying to look one up.
     var isCenter: Bool { kind == .center }
+
+    /// Kudos and ratings belong to one session — a controller and the moment
+    /// they opened the position — so both halves have to be known.
+    var canReceiveKudos: Bool { controllerId != nil && openedAt != nil }
 
     /// How long they have been on, as `2h 14m`. Nil when the backend didn't
     /// send a usable start time, which it sometimes doesn't.
@@ -114,6 +123,7 @@ struct AtcFacility: Identifiable, Equatable {
 
         self.station = station.uppercased()
         self.controller = AtcFacility.text(payload["username"]) ?? "Unknown"
+        self.controllerId = AtcFacility.text(payload["userId"])
 
         let rawType = AtcFacility.integer(payload["type"])
         self.kind = rawType.flatMap { Kind(rawValue: $0) } ?? .unknown
