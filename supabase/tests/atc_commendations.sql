@@ -128,6 +128,21 @@ begin
   select count(*) into n from public.atc_commendations where user_id = bo and hidden;
   assert n = 1, 'bo''s row is untouched';
 
+  -- 7b. The controller's inbox: matched on the IF username of the caller's
+  --     own profile, excluding anything they left themselves.
+  perform pg_temp.acting_as('cccccccc-0000-0000-0000-000000000003');
+  j := public.atc_kudos_inbox(null);
+  assert (j->>'linked')::boolean and j->>'username' = 'tower_tom', 'inbox knows who I am';
+  assert (j->>'total')::int = 1 and (j->>'unseen')::int = 1, 'one visible kudos for Tower_Tom';
+  assert j->'recent'->0->'by'->>'handle' = 'ada', 'and who it came from';
+  assert j->>'controller_if_id' = ctrl_id, 'with my IF id to open my profile';
+  j := public.atc_kudos_inbox(now() + interval '1 minute');
+  assert (j->>'unseen')::int = 0 and jsonb_array_length(j->'recent') = 0, 'nothing newer than since';
+  perform pg_temp.acting_as(bo::text);
+  j := public.atc_kudos_inbox(null);
+  assert (j->>'total')::int = 0, 'another pilot sees nothing in their own inbox';
+  perform pg_temp.acting_as(ada::text);
+
   -- 8. Rate limit: 40 a day (ada already has one), but re-pressing an
   --    existing one still works.
   for i in 1..39 loop
@@ -144,6 +159,7 @@ set role anon;
 select pg_temp.fails('select * from public.atc_commendations', 'anon table read');
 select pg_temp.fails($q$select public.atc_commend('a1b2c3d4-0000', 'x', 'EGLL', 1, now(), 'thumbs_up')$q$, 'anon commend');
 select public.atc_commendation_profile('a1b2c3d4-0000-4000-8000-00000000abcd') is not null as anon_can_read_profile;
+select pg_temp.fails('select public.atc_kudos_inbox(null)', 'anon inbox');
 reset role;
 
 set role authenticated;

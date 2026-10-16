@@ -78,6 +78,12 @@ create index if not exists atc_commendations_airport_idx
   on public.atc_commendations (airport_icao, created_at desc)
   where not hidden and airport_icao is not null;
 
+-- The kudos inbox asks "what has been left for the controller with my IF
+-- username".
+create index if not exists atc_commendations_controller_name_idx
+  on public.atc_commendations (lower(controller_username), created_at desc)
+  where not hidden and withdrawn_at is null;
+
 -- The rate limit asks "how many has this pilot left today".
 create index if not exists atc_commendations_user_idx
   on public.atc_commendations (user_id, created_at desc);
@@ -363,10 +369,64 @@ as $function$
   );
 $function$;
 
+-- The signed-in controller's own kudos: what pilots have left for the IF
+-- username on their pilot profile, so the app can show a badge and a toast
+-- when a new one lands. Matched by username because a controller's account
+-- here is not keyed by their IF user id; everything returned is already
+-- public through atc_commendation_profile, so a mistyped or borrowed
+-- username reveals nothing new.
+create or replace function public.atc_kudos_inbox(
+  p_since timestamptz default null,
+  p_limit integer default 10
+)
+returns jsonb
+language sql
+stable
+security definer
+set search_path to 'public'
+as $function$
+  with me as (
+    select lower(btrim(p.if_username)) as uname
+      from public.pilot_profiles p
+     where p.user_id = auth.uid() and nullif(btrim(p.if_username), '') is not null
+  ),
+  mine as (
+    select c.*
+      from public.atc_commendations c
+      join me on lower(c.controller_username) = me.uname
+     where not c.hidden and c.withdrawn_at is null
+       and c.user_id <> auth.uid()
+  ),
+  fresh as (
+    select * from mine
+     where p_since is null or created_at > p_since
+     order by created_at desc
+     limit least(greatest(coalesce(p_limit, 10), 1), 20)
+  )
+  select jsonb_build_object(
+    'linked', exists (select 1 from me),
+    'username', (select uname from me),
+    'controller_if_id', (select controller_if_id from mine order by created_at desc limit 1),
+    'total', (select count(*) from mine),
+    'unseen', (select count(*) from mine where p_since is null or created_at > p_since),
+    'recent', coalesce((
+      select jsonb_agg(jsonb_build_object(
+               'airport_icao', f.airport_icao,
+               'facility_type', f.facility_type,
+               'kind', f.kind,
+               'note', f.note,
+               'created_at', f.created_at,
+               'by', public.atc_commender_label(f.user_id)
+             ) order by f.created_at desc)
+        from fresh f), '[]'::jsonb)
+  );
+$function$;
+
 -- MARK: - Grants
 
 revoke all on function public.atc_commend(text, text, text, integer, timestamptz, text, text) from public, anon;
 revoke all on function public.atc_commendation_withdraw(text, timestamptz) from public, anon;
+revoke all on function public.atc_kudos_inbox(timestamptz, integer) from public, anon;
 revoke all on function public.atc_commender_label(uuid) from public, anon, authenticated;
 revoke all on function public.atc_commendation_counts(text[]) from public;
 revoke all on function public.atc_commendations_for_airport(text, integer) from public;
@@ -374,6 +434,7 @@ revoke all on function public.atc_commendation_profile(text, integer) from publi
 
 grant execute on function public.atc_commend(text, text, text, integer, timestamptz, text, text) to authenticated;
 grant execute on function public.atc_commendation_withdraw(text, timestamptz) to authenticated;
+grant execute on function public.atc_kudos_inbox(timestamptz, integer) to authenticated;
 grant execute on function public.atc_commendation_counts(text[]) to anon, authenticated;
 grant execute on function public.atc_commendations_for_airport(text, integer) to anon, authenticated;
 grant execute on function public.atc_commendation_profile(text, integer) to anon, authenticated;
