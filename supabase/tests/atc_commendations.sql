@@ -113,9 +113,20 @@ begin
   j := public.atc_commendation_profile(ctrl_id);
   assert (j->>'total')::int = 1, 'hidden rows do not count';
 
-  -- 7. Hiding one pilot's row leaves the other's.
-  select count(*) into n from public.atc_commendations where not hidden;
-  assert n = 1, 'ada''s row is untouched';
+  -- 7. Withdrawing hides your own row from every reader and from the
+  --    pressed state; pressing again brings it back.
+  perform pg_temp.acting_as(ada::text);
+  assert public.atc_commendation_withdraw(ctrl_id, sess), 'withdraw own';
+  assert not public.atc_commendation_withdraw(ctrl_id, sess), 'nothing left to withdraw';
+  j := public.atc_commendation_profile(ctrl_id);
+  assert (j->>'total')::int = 0, 'withdrawn and hidden rows do not count';
+  select * into r from public.atc_commendation_counts(array[ctrl_id]);
+  assert r.total = 0 and r.my_kind is null, 'a withdrawn press is not shown as pressed';
+  perform public.atc_commend(ctrl_id, 'Tower_Tom', 'EGLL', 1, sess, 'thumbs_up');
+  select * into r from public.atc_commendation_counts(array[ctrl_id]);
+  assert r.total = 1 and r.my_kind = 'thumbs_up', 'pressing again restores it';
+  select count(*) into n from public.atc_commendations where user_id = bo and hidden;
+  assert n = 1, 'bo''s row is untouched';
 
   -- 8. Rate limit: 40 a day (ada already has one), but re-pressing an
   --    existing one still works.

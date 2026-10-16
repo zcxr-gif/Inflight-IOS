@@ -21,7 +21,8 @@
 -- ONE PER SESSION. A pilot may commend a given controller once per controller
 -- session (the session's start time, from the same feed). Changing your mind
 -- between thumbs-up and Good Day updates the row rather than adding one.
--- There is no withdraw: a commendation, once given, stands.
+-- Pressing it again withdraws it. A withdrawal is a timestamp, not a deleted
+-- row, so the daily cap cannot be dodged by withdrawing and re-sending.
 --
 -- NO DIRECT TABLE ACCESS. Readers would otherwise see `user_id`, which says
 -- who was flying where and when. Everything goes through the functions below,
@@ -57,6 +58,10 @@ create table if not exists public.atc_commendations (
   -- Set by staff with the service role. A hidden row counts towards
   -- nothing and shows nowhere.
   hidden boolean not null default false,
+
+  -- Set when the pilot takes it back. Readers skip it; commending the same
+  -- session again clears it.
+  withdrawn_at timestamptz,
 
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
@@ -178,11 +183,42 @@ begin
   on conflict (user_id, controller_if_id, session_started_at) do update
      set kind = excluded.kind,
          note = excluded.note,
+         withdrawn_at = null,
          controller_username = coalesce(excluded.controller_username, c.controller_username),
          updated_at = now()
   returning id into v_id;
 
   return v_id;
+end;
+$function$;
+
+-- MARK: - Taking it back
+
+create or replace function public.atc_commendation_withdraw(
+  p_controller_if_id text,
+  p_session_started_at timestamptz
+)
+returns boolean
+language plpgsql
+volatile
+security definer
+set search_path to 'public'
+as $function$
+declare
+  v_uid uuid := auth.uid();
+  n integer;
+begin
+  if v_uid is null then
+    raise exception 'Sign in first.' using errcode = 'insufficient_privilege';
+  end if;
+  update public.atc_commendations
+     set withdrawn_at = now(), updated_at = now()
+   where user_id = v_uid
+     and controller_if_id = p_controller_if_id
+     and session_started_at = date_trunc('second', p_session_started_at)
+     and withdrawn_at is null;
+  get diagnostics n = row_count;
+  return n > 0;
 end;
 $function$;
 
@@ -225,9 +261,9 @@ as $function$
     select distinct unnest(p_controller_if_ids[1:100]) as id
   )
   select ids.id,
-         count(c.id) filter (where not c.hidden)::integer,
-         count(c.id) filter (where not c.hidden and c.kind = 'thumbs_up')::integer,
-         count(c.id) filter (where not c.hidden and c.kind = 'good_day')::integer,
+         count(c.id) filter (where not c.hidden and c.withdrawn_at is null)::integer,
+         count(c.id) filter (where not c.hidden and c.withdrawn_at is null and c.kind = 'thumbs_up')::integer,
+         count(c.id) filter (where not c.hidden and c.withdrawn_at is null and c.kind = 'good_day')::integer,
          mine.session_started_at,
          mine.kind
     from ids
@@ -236,6 +272,7 @@ as $function$
       select m.session_started_at, m.kind
         from public.atc_commendations m
        where m.controller_if_id = ids.id and m.user_id = auth.uid()
+         and m.withdrawn_at is null
        order by m.session_started_at desc
        limit 1
     ) mine on true
@@ -257,14 +294,14 @@ as $function$
     select c.*
       from public.atc_commendations c
      where c.airport_icao = upper(btrim(p_icao))
-       and not c.hidden
+       and not c.hidden and c.withdrawn_at is null
      order by c.created_at desc
      limit least(greatest(coalesce(p_limit, 20), 1), 50)
   )
   select jsonb_build_object(
     'icao', upper(btrim(p_icao)),
     'total', (select count(*) from public.atc_commendations
-               where airport_icao = upper(btrim(p_icao)) and not hidden),
+               where airport_icao = upper(btrim(p_icao)) and not hidden and withdrawn_at is null),
     'recent', coalesce((
       select jsonb_agg(jsonb_build_object(
                'controller_if_id', r.controller_if_id,
@@ -294,7 +331,7 @@ as $function$
   with mine as (
     select c.*
       from public.atc_commendations c
-     where c.controller_if_id = p_controller_if_id and not c.hidden
+     where c.controller_if_id = p_controller_if_id and not c.hidden and c.withdrawn_at is null
   )
   select jsonb_build_object(
     'controller_if_id', p_controller_if_id,
@@ -329,12 +366,14 @@ $function$;
 -- MARK: - Grants
 
 revoke all on function public.atc_commend(text, text, text, integer, timestamptz, text, text) from public, anon;
+revoke all on function public.atc_commendation_withdraw(text, timestamptz) from public, anon;
 revoke all on function public.atc_commender_label(uuid) from public, anon, authenticated;
 revoke all on function public.atc_commendation_counts(text[]) from public;
 revoke all on function public.atc_commendations_for_airport(text, integer) from public;
 revoke all on function public.atc_commendation_profile(text, integer) from public;
 
 grant execute on function public.atc_commend(text, text, text, integer, timestamptz, text, text) to authenticated;
+grant execute on function public.atc_commendation_withdraw(text, timestamptz) to authenticated;
 grant execute on function public.atc_commendation_counts(text[]) to anon, authenticated;
 grant execute on function public.atc_commendations_for_airport(text, integer) to anon, authenticated;
 grant execute on function public.atc_commendation_profile(text, integer) to anon, authenticated;
