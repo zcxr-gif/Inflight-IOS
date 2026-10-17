@@ -375,10 +375,19 @@ struct AtcControllerView: View {
     @State private var profile: AtcKudosStore.ControllerProfile?
     @State private var isLoading = true
 
+    /// Their Inflight profile, when they have claimed this IF name: the
+    /// banner and picture at the top of the page.
+    @State private var pilot: PilotProfile?
+    @State private var openedPilot: ProfileLink?
+
     private var theme: FlightInfoTheme { appearance.theme }
 
     var body: some View {
         MapPanel(title: username, subtitle: subtitle) {
+            if let pilot = pilot {
+                pilotHeader(pilot)
+            }
+
             if let live = live, live.canReceiveKudos {
                 PanelSection(title: "ON FREQUENCY NOW") {
                     VStack(alignment: .leading, spacing: 5) {
@@ -425,6 +434,11 @@ struct AtcControllerView: View {
 
             AtcAppealLink()
         }
+        .task(id: username) {
+            pilot = await PilotDirectory.shared.card(ifUsername: username)
+        }
+        // Erased: the profile page can lead back to controllers.
+        .sheet(item: $openedPilot) { link in AnyView(PublicProfileView(link: link)) }
         .task(id: controllerId) {
             isLoading = true
             profile = await AtcKudosStore.shared.profile(controllerId: controllerId)
@@ -436,6 +450,50 @@ struct AtcControllerView: View {
         .onChange(of: changeKey) { _, _ in
             Task { profile = await store.profile(controllerId: controllerId) ?? profile }
         }
+    }
+
+    private func pilotHeader(_ pilot: PilotProfile) -> some View {
+        Button { openedPilot = .handle(pilot.handle) } label: {
+            VStack(alignment: .leading, spacing: 0) {
+                PilotBanner(
+                    url: pilot.bannerURL,
+                    preset: BannerPreset.resolved(pilot.bannerPreset),
+                    height: 110
+                )
+                HStack(alignment: .bottom, spacing: 12) {
+                    PilotAvatar(
+                        url: pilot.avatarURL,
+                        initials: pilot.initials,
+                        side: 64,
+                        isPro: pilot.isPro,
+                        tint: pilot.accentColor
+                    )
+                    .offset(y: -22)
+                    .padding(.bottom, -22)
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(L(pilot.displayName))
+                            .font(.system(size: 15, weight: .heavy, design: .rounded))
+                            .foregroundStyle(theme.textPrimary)
+                            .flightInfoLine(minimumScale: 0.7)
+                        Text(L("@\(pilot.handle) on Inflight"))
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(theme.textDim)
+                    }
+                    Spacer(minLength: 0)
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(theme.textDim)
+                }
+                .padding(.horizontal, 14)
+                .padding(.bottom, 12)
+            }
+            .clipShape(RoundedRectangle(cornerRadius: theme.radiusMedium, style: .continuous))
+            .flightInfoSurface(theme, radius: theme.radiusMedium)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.pressable(scale: 0.985))
+        .accessibilityHint("Opens their Inflight profile")
     }
 
     private var changeKey: [Int] {
@@ -757,6 +815,7 @@ struct RateMyAtcBoard: View {
                         .foregroundStyle(rank <= 3 ? Color.yellow : theme.textDim)
                         .frame(width: 22)
                 }
+                AtcControllerAvatar(username: name)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(L(name))
                         .font(.system(size: 14, weight: .bold))
@@ -932,6 +991,26 @@ struct AtcKudosInboxSection: View {
 }
 
 // MARK: - Small parts
+
+/// A controller's picture from their Inflight profile, or their initials.
+/// Looked up by IF name through `PilotDirectory`, which caches the misses too.
+struct AtcControllerAvatar: View {
+    let username: String
+    var side: CGFloat = 32
+
+    @State private var pilot: PilotProfile?
+
+    var body: some View {
+        PilotAvatar(
+            url: pilot?.avatarURL,
+            initials: pilot?.initials ?? String(username.filter { $0.isLetter || $0.isNumber }.prefix(2)).uppercased(),
+            side: side,
+            isPro: pilot?.isPro ?? false,
+            tint: pilot?.accentColor
+        )
+        .task(id: username) { pilot = await PilotDirectory.shared.card(ifUsername: username) }
+    }
+}
 
 /// On the map's avatar: kudos or private feedback the signed-in controller
 /// has not looked at yet. Checks every few minutes while it is on screen.

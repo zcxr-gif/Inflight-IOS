@@ -65,6 +65,10 @@ struct FlightPilotCard: View {
 
     @StateObject private var banner = RemoteImageLoader()
 
+    /// Their record as a controller, when they also control: "★ 4.7 ATC".
+    /// Keyed on the IF user id, the id kudos and ratings are filed against.
+    @ObservedObject private var kudos = AtcKudosStore.shared
+
     /// The name written on the aeroplane. Nil is rare and real — the feed does
     /// send aircraft with no pilot attached — and the card draws nothing at all
     /// for one rather than a block about nobody.
@@ -117,6 +121,9 @@ struct FlightPilotCard: View {
         }
         .task(id: flight.username) { await resolveProfile() }
         .task(id: statsKey) { await resolveStats() }
+        .task(id: flight.userId) {
+            if stub == nil, let id = flight.userId { kudos.request(id) }
+        }
         .sheet(item: $opened) { link in PublicProfileView(link: link) }
     }
 
@@ -210,6 +217,20 @@ struct FlightPilotCard: View {
 
             ForEach(roles, id: \.badge) { role in
                 PilotRoleBadge(role: role, isLight: theme.isLight && !wearsBanner)
+            }
+
+            if let atc = atcText {
+                Text(L(atc))
+                    .font(.system(size: 9, weight: .heavy))
+                    .foregroundStyle(Color(red: 0.99, green: 0.9, blue: 0.54))
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2.5)
+                    .background {
+                        Capsule().fill(Color.black.opacity(0.45))
+                            .overlay { Capsule().strokeBorder(Color.yellow.opacity(0.55), lineWidth: 1) }
+                    }
+                    .fixedSize()
+                    .accessibilityLabel(L(atcAccessibility ?? atc))
             }
 
             if let display = profileName {
@@ -366,6 +387,22 @@ struct FlightPilotCard: View {
     /// — and it plays the part the ICAO code plays on the place card. The
     /// display name somebody chose is the quieter line under it.
     private var name: String { pilot ?? "Unknown pilot" }
+
+    /// RateMyATC on the card: stars when they have been rated, kudos before.
+    private var atcText: String? {
+        guard let id = flight.userId, let s = kudos.stats[id] else { return nil }
+        if s.ratingCount > 0, let avg = s.ratingAvg { return String(format: "★ %.1f ATC", avg) }
+        if s.kudos > 0 { return "👍 \(s.kudos) ATC" }
+        return nil
+    }
+
+    private var atcAccessibility: String? {
+        guard let id = flight.userId, let s = kudos.stats[id] else { return nil }
+        if s.ratingCount > 0, let avg = s.ratingAvg {
+            return Lf("Rated %@ stars by %@ pilots as a controller", String(format: "%.1f", avg), String(s.ratingCount))
+        }
+        return Lf("%@ kudos as a controller", String(s.kudos))
+    }
 
     /// The profile's own display name, when there is one and it says something
     /// the line above did not.
