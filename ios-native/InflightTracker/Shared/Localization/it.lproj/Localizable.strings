@@ -1712,3 +1712,8 @@
 
 "Weather at fields" = "Meteo agli aeroporti";
 "Marks every field where it is raining, snowing, storming or foggy, and zoomed in over one, the rain or snow falls on the map, with lightning in a storm and haze in fog. From the same reports, so it costs nothing." = "Segna ogni aeroporto dove piove, nevica, c'è un temporale o nebbia; zoomando su uno, la pioggia o la neve cadono sulla mappa, con i lampi nel temporale e la foschia nella nebbia. Dagli stessi bollettini, quindi non costa nulla.";
+
+/* RateMyATC: anonymous comments */
+"Post anonymously" = "Pubblica in forma anonima";
+"Your name is not shown with the comment." = "Il tuo nome non compare con il commento.";
+"Your name is shown with the comment." = "Il tuo nome compare con il commento.";

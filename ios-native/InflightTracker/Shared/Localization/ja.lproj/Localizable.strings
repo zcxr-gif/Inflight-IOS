@@ -1712,3 +1712,8 @@
 
 "Weather at fields" = "空港の天気";
 "Marks every field where it is raining, snowing, storming or foggy, and zoomed in over one, the rain or snow falls on the map, with lightning in a storm and haze in fog. From the same reports, so it costs nothing." = "雨・雪・雷雨・霧の空港に印を付け、近くまでズームすると地図に雨や雪が降り、雷雨では稲妻、霧ではかすみが表示されます。同じ観測報から作るので追加の通信はありません。";
+
+/* RateMyATC: anonymous comments */
+"Post anonymously" = "匿名で投稿";
+"Your name is not shown with the comment." = "コメントに名前は表示されません。";
+"Your name is shown with the comment." = "コメントに名前が表示されます。";

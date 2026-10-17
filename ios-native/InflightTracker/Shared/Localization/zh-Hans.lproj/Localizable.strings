@@ -1712,3 +1712,8 @@
 
 "Weather at fields" = "机场天气";
 "Marks every field where it is raining, snowing, storming or foggy, and zoomed in over one, the rain or snow falls on the map, with lightning in a storm and haze in fog. From the same reports, so it costs nothing." = "标出正在下雨、下雪、雷暴或有雾的每个机场；放大到某个机场附近时，雨或雪会落在地图上，雷暴时有闪电，雾中有薄雾。来自同样的报文，不产生额外请求。";
+
+/* RateMyATC: anonymous comments */
+"Post anonymously" = "匿名发布";
+"Your name is not shown with the comment." = "评论不会显示你的名字。";
+"Your name is shown with the comment." = "评论会显示你的名字。";

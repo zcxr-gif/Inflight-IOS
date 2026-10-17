@@ -193,7 +193,9 @@ final class AtcKudosStore: ObservableObject {
     }
 
     /// Rates this session. Re-rating the same session replaces the old one.
-    func rate(_ stars: Int, comment: String, for facility: AtcFacility) async throws {
+    /// `anonymous` withholds the rater's name from the comment; the stars
+    /// count publicly either way.
+    func rate(_ stars: Int, comment: String, anonymous: Bool, for facility: AtcFacility) async throws {
         guard let id = facility.controllerId, let opened = facility.openedAt else { return }
         let token = try await requireToken("rate a controller")
         let text = comment.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -201,7 +203,8 @@ final class AtcKudosStore: ObservableObject {
             "atc_rate",
             arguments: sessionArguments(facility, id: id, opened: opened).merging([
                 "p_stars": stars,
-                "p_comment": Self.orNull(text)
+                "p_comment": Self.orNull(text),
+                "p_anonymous": anonymous
             ]) { _, new in new },
             accessToken: token
         )
@@ -391,6 +394,7 @@ extension AtcKudosStore {
         let airport_icao: String?
         let facility_type: Int?
         let created_at: String?
+        let anonymous: Bool?
         let by: By?
 
         var date: Date? { AtcKudosStore.date(created_at) }

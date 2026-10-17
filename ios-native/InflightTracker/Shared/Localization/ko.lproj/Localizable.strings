@@ -1712,3 +1712,8 @@
 
 "Weather at fields" = "공항 날씨";
 "Marks every field where it is raining, snowing, storming or foggy, and zoomed in over one, the rain or snow falls on the map, with lightning in a storm and haze in fog. From the same reports, so it costs nothing." = "비, 눈, 뇌우, 안개가 있는 공항마다 표시하고, 가까이 확대하면 지도 위에 비나 눈이 내리며 뇌우에는 번개, 안개에는 연무가 표시됩니다. 같은 관측 보고에서 가져오므로 추가 비용이 없습니다.";
+
+/* RateMyATC: anonymous comments */
+"Post anonymously" = "익명으로 게시";
+"Your name is not shown with the comment." = "댓글에 이름이 표시되지 않습니다.";
+"Your name is shown with the comment." = "댓글에 이름이 표시됩니다.";

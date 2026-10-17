@@ -194,6 +194,9 @@ struct AtcRateSheet: View {
 
     @State private var stars: Int
     @State private var comment = ""
+    /// Nil until the pilot touches the switch: until then it follows the
+    /// stars (anonymous for 1–3★, named for 4–5★).
+    @State private var chosenAnonymous: Bool?
     @State private var isSending = false
     @State private var problem: String?
 
@@ -201,6 +204,8 @@ struct AtcRateSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     private static let limit = 280
+
+    private var anonymous: Bool { chosenAnonymous ?? (stars > 0 && stars <= 3) }
 
     init(facility: AtcFacility, current: Int) {
         self.facility = facility
@@ -247,6 +252,16 @@ struct AtcRateSheet: View {
                         .frame(maxWidth: .infinity, alignment: .trailing)
                 }
                 .padding(12)
+
+                PanelDivider()
+                PanelToggleRow(
+                    title: "Post anonymously",
+                    symbol: "person.crop.circle.badge.questionmark",
+                    detail: anonymous
+                        ? "Your name is not shown with the comment."
+                        : "Your name is shown with the comment.",
+                    isOn: Binding(get: { anonymous }, set: { chosenAnonymous = $0 })
+                )
             }
 
             AtcNotice(lines: [
@@ -270,7 +285,7 @@ struct AtcRateSheet: View {
                 Task {
                     defer { isSending = false }
                     do {
-                        try await AtcKudosStore.shared.rate(stars, comment: comment, for: facility)
+                        try await AtcKudosStore.shared.rate(stars, comment: comment, anonymous: anonymous, for: facility)
                         dismiss()
                     } catch {
                         problem = error.localizedDescription
@@ -568,7 +583,7 @@ struct AtcControllerView: View {
                     AtcEntryRow(
                         lead: AnyView(AtcStars(value: Double(c.stars ?? 0), size: 9)),
                         text: c.comment,
-                        meta: AtcEntryRow.meta(by: c.by, airport: c.airport_icao, date: c.date)
+                        meta: AtcEntryRow.meta(by: c.by, airport: c.airport_icao, date: c.date, anonymous: c.anonymous == true)
                     )
                 }
             }
@@ -944,7 +959,8 @@ struct AtcKudosInboxSection: View {
                             AtcEntryRow(
                                 lead: AnyView(AtcStars(value: Double(c.stars ?? 0), size: 9)),
                                 text: c.comment,
-                                meta: AtcEntryRow.meta(by: nil, airport: c.airport_icao, date: c.date, anonymous: true)
+                                // Anonymous unless the rater chose to sign it.
+                                meta: AtcEntryRow.meta(by: c.by, airport: c.airport_icao, date: c.date, anonymous: c.anonymous != false)
                             )
                         }
                     }
