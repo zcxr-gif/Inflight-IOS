@@ -1712,3 +1712,8 @@
 
 "Weather at fields" = "Météo aux terrains";
 "Marks every field where it is raining, snowing, storming or foggy, and zoomed in over one, the rain or snow falls on the map, with lightning in a storm and haze in fog. From the same reports, so it costs nothing." = "Signale chaque terrain où il pleut, neige, fait de l'orage ou du brouillard ; en zoomant sur l'un d'eux, la pluie ou la neige tombe sur la carte, avec des éclairs sous l'orage et un voile dans le brouillard. Tiré des mêmes bulletins, donc sans coût.";
+
+/* RateMyATC: anonymous comments */
+"Post anonymously" = "Publier anonymement";
+"Your name is not shown with the comment." = "Votre nom n'apparaît pas avec le commentaire.";
+"Your name is shown with the comment." = "Votre nom apparaît avec le commentaire.";

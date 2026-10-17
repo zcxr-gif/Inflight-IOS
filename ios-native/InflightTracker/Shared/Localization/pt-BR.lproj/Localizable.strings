@@ -1712,3 +1712,8 @@
 
 "Weather at fields" = "Tempo nos aeródromos";
 "Marks every field where it is raining, snowing, storming or foggy, and zoomed in over one, the rain or snow falls on the map, with lightning in a storm and haze in fog. From the same reports, so it costs nothing." = "Marca cada aeródromo onde está chovendo, nevando, com tempestade ou neblina; ao aproximar o zoom de um deles, a chuva ou a neve cai sobre o mapa, com relâmpagos na tempestade e névoa na neblina. Vem dos mesmos boletins, então não custa nada.";
+
+/* RateMyATC: anonymous comments */
+"Post anonymously" = "Publicar anonimamente";
+"Your name is not shown with the comment." = "Seu nome não aparece com o comentário.";
+"Your name is shown with the comment." = "Seu nome aparece com o comentário.";

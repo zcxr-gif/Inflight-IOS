@@ -1712,3 +1712,8 @@
 
 "Weather at fields" = "Weather at fields";
 "Marks every field where it is raining, snowing, storming or foggy, and zoomed in over one, the rain or snow falls on the map, with lightning in a storm and haze in fog. From the same reports, so it costs nothing." = "Marks every field where it is raining, snowing, storming or foggy, and zoomed in over one, the rain or snow falls on the map, with lightning in a storm and haze in fog. From the same reports, so it costs nothing.";
+
+/* RateMyATC: anonymous comments */
+"Post anonymously" = "Post anonymously";
+"Your name is not shown with the comment." = "Your name is not shown with the comment.";
+"Your name is shown with the comment." = "Your name is shown with the comment.";

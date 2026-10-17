@@ -1712,3 +1712,8 @@
 
 "Weather at fields" = "हवाई अड्डों का मौसम";
 "Marks every field where it is raining, snowing, storming or foggy, and zoomed in over one, the rain or snow falls on the map, with lightning in a storm and haze in fog. From the same reports, so it costs nothing." = "जहाँ बारिश, बर्फ़, आँधी-तूफ़ान या कोहरा है, उस हर हवाई अड्डे पर निशान लगाता है; और पास ज़ूम करने पर नक़्शे पर बारिश या बर्फ़ गिरती है, तूफ़ान में बिजली और कोहरे में धुंध के साथ। उन्हीं रिपोर्टों से, इसलिए कोई ख़र्च नहीं।";
+
+/* RateMyATC: anonymous comments */
+"Post anonymously" = "गुमनाम रूप से पोस्ट करें";
+"Your name is not shown with the comment." = "टिप्पणी के साथ आपका नाम नहीं दिखेगा।";
+"Your name is shown with the comment." = "टिप्पणी के साथ आपका नाम दिखेगा।";
