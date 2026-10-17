@@ -2326,6 +2326,12 @@ struct ContentView: View {
             }
             // Small, and outside the circle, so it reads as a state marker on
             // the avatar rather than as a badge with a number missing.
+            // New kudos or private feedback for a pilot who controls. Its own
+            // view, observing the store itself, so a kudos count changing
+            // redraws a dot rather than the whole map.
+            .overlay(alignment: .topTrailing) {
+                if accounts.isSignedIn { AtcKudosAvatarBadge() }
+            }
             .overlay(alignment: .bottomTrailing) {
                 if entitlements.isPro {
                     Circle()

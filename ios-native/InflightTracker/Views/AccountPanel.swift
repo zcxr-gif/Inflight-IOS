@@ -106,6 +106,8 @@ struct AccountPanel: View {
                     .padding(.vertical, 28)
                 }
             } else if let account = accounts.account {
+                AtcKudosInboxSection()
+                    .id(account.id)
                 signedIn(account)
                 syncSection
             } else {

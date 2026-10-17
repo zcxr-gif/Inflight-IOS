@@ -328,7 +328,7 @@ struct AirportPanel: View {
             PanelSection(title: "ON FREQUENCY") {
                 VStack(alignment: .leading, spacing: 9) {
                     ForEach(station.facilities) { facility in
-                        PanelFacilityLine(facility: facility, now: now)
+                        AtcFacilityKudosLine(facility: facility, now: now)
                     }
                 }
                 .padding(.horizontal, 14)
