@@ -410,6 +410,19 @@ struct AtcControllerView: View {
                 }
             }
 
+            if let url = AppConfig.atcControllerURL(username: username) {
+                PanelSection(title: "SHARE") {
+                    ShareLink(item: url, subject: Text(Lf("%@ on RateMyATC", username))) {
+                        PanelRowLabel(title: "Share this RateMyATC page", symbol: "square.and.arrow.up")
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 12)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.pressable(scale: 0.985))
+                }
+            }
+
             AtcAppealLink()
         }
         .task(id: controllerId) {
@@ -887,6 +900,18 @@ struct AtcKudosInboxSection: View {
                 if inbox.controller_if_id != nil {
                     PanelDivider()
                     PanelActionRow(title: "Open my RateMyATC page", symbol: "star.bubble") { isOpening = true }
+                }
+
+                if let name = inbox.username, let url = AppConfig.atcControllerURL(username: name) {
+                    PanelDivider()
+                    ShareLink(item: url, subject: Text(L("My RateMyATC page"))) {
+                        PanelRowLabel(title: "Share my RateMyATC page", symbol: "square.and.arrow.up")
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 12)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.pressable(scale: 0.985))
                 }
             }
         } else {

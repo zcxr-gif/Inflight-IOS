@@ -366,6 +366,18 @@ enum AppConfig {
     /// nothing.
     static let siteURL = URL(string: "https://inflight.info")!
 
+    /// A controller's RateMyATC page — the link the share button hands out.
+    /// Keyed by their Infinite Flight name, as pilots know them; the page
+    /// finds them under their newest name if they have renamed.
+    static func atcControllerURL(username: String) -> URL? {
+        let allowed = CharacterSet.urlPathAllowed.subtracting(CharacterSet(charactersIn: "/"))
+        guard let name = username.addingPercentEncoding(withAllowedCharacters: allowed), !name.isEmpty else { return nil }
+        return URL(string: "https://inflight.info/atc/\(name)")
+    }
+
+    /// The RateMyATC page as a whole: the board and the numbers.
+    static let atcPageURL = URL(string: "https://inflight.info/atc")!
+
     /// Where iOS lets someone change or cancel a subscription. Apple's own
     /// deep link, so it lands on the right screen of Settings rather than on
     /// the App Store's front page.
