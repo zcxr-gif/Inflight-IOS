@@ -388,7 +388,7 @@ extension WidgetFlight {
     /// route while the system waits on its render.
     init(flight: Flight) {
         let progress = FlightProgress(flight: flight)
-        let ete = progress?.estimatedTimeEnroute(groundSpeedKnots: flight.groundSpeedKnots)
+        let ete = progress?.estimatedTimeEnroute(for: flight)
 
         self.init(
             id: flight.id,

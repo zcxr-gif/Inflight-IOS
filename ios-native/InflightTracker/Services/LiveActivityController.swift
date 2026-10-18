@@ -109,7 +109,7 @@ final class LiveActivityController: ObservableObject {
         // it to zero — which is what this did — set the arrival time to the
         // moment the banner was started, so a flight watched from the gate
         // announced itself as already arriving.
-        let ete = progress?.estimatedTimeEnroute(groundSpeedKnots: flight.groundSpeedKnots)
+        let ete = progress?.estimatedTimeEnroute(for: flight)
         let arrival = ete.map { now.addingTimeInterval($0) }
 
         let attributes = InflightActivityAttributes(
@@ -191,7 +191,7 @@ final class LiveActivityController: ObservableObject {
                 guard let flight = byId[activity.attributes.flightId] else { continue }
 
                 let progress = FlightProgress(flight: flight)
-                let ete = progress?.estimatedTimeEnroute(groundSpeedKnots: flight.groundSpeedKnots)
+                let ete = progress?.estimatedTimeEnroute(for: flight)
                 let previous = activity.content.state
 
                 let state = InflightActivityAttributes.ContentState(

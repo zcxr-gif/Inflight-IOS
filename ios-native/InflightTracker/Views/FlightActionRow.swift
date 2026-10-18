@@ -273,7 +273,7 @@ struct FlightActionRow: View {
 
     private var remainingLabel: String {
         guard let progress = FlightProgress(flight: flight),
-              let ete = progress.estimatedTimeEnroute(groundSpeedKnots: flight.groundSpeedKnots) else {
+              let ete = progress.estimatedTimeEnroute(for: flight) else {
             return "—:—"
         }
         return Format.duration(ete)

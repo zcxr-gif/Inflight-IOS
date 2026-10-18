@@ -217,11 +217,11 @@ struct FlightInfoBoard: View {
         }
     }
 
-    /// How long is left at the speed the aircraft is doing now, or nil when it
+    /// How long is left — see `EnrouteEstimator` — or nil when it
     /// is too slow — or has nowhere filed — for the arithmetic to mean
     /// anything.
     private var remaining: TimeInterval? {
-        progress?.estimatedTimeEnroute(groundSpeedKnots: flight.groundSpeedKnots)
+        progress?.estimatedTimeEnroute(for: flight)
     }
 
     private var arrival: Date? {

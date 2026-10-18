@@ -223,7 +223,7 @@ struct RouteCard: View {
     }
 
     private var eteLabel: String {
-        guard let ete = progress?.estimatedTimeEnroute(groundSpeedKnots: flight.groundSpeedKnots) else {
+        guard let ete = progress?.estimatedTimeEnroute(for: flight) else {
             return "—"
         }
         return Format.duration(ete)

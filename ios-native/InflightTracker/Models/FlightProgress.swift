@@ -32,7 +32,7 @@ enum FlightPhase: String, CaseIterable {
 }
 
 /// Route geometry for a flight: how far it has come, how far is left, and how
-/// long that will take at the current ground speed.
+/// long that will take — see `EnrouteEstimator` for the last.
 struct FlightProgress {
 
     let departure: Airport
@@ -50,11 +50,15 @@ struct FlightProgress {
         return min(max(flownNM / totalNM, 0), 1)
     }
 
-    /// Hours to run at the current ground speed, or nil when the aircraft is
-    /// too slow for the estimate to mean anything.
-    func estimatedTimeEnroute(groundSpeedKnots: Double) -> TimeInterval? {
-        guard groundSpeedKnots > 40, remainingNM > 0 else { return nil }
-        return remainingNM / groundSpeedKnots * 3600
+    /// Seconds to run along the filed route, through the rest of the climb,
+    /// cruise, descent and the arrival field's landing queue — or nil when the
+    /// aircraft is too slow for the estimate to mean anything.
+    func estimatedTimeEnroute(for flight: Flight) -> TimeInterval? {
+        EnrouteEstimator.shared.timeEnroute(
+            for: flight,
+            directNM: remainingNM,
+            arrival: arrival.coordinate
+        )
     }
 
     init?(flight: Flight) {

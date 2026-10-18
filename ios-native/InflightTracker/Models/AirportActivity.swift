@@ -22,7 +22,7 @@ struct AirportActivity {
         /// Great-circle distance from the field.
         let distanceNM: Double
 
-        /// Seconds to run at the current ground speed, for aircraft on their way
+        /// Seconds to run — see `EnrouteEstimator` — for aircraft on their way
         /// here. Nil wherever the number would be a fiction — anything on the
         /// ground, anything on its way out, and anything too slow for the
         /// division to mean anything.
@@ -118,10 +118,14 @@ struct AirportActivity {
                 // A circuit files the same field at both ends. It is counted
                 // once, as an arrival, because that is the list its ETA belongs
                 // in.
-                let speed = flight.groundSpeedKnots
-                let eta: TimeInterval? = speed > flyingSpeedKnots
-                    ? distance / speed * 3600
-                    : nil
+                // The same estimate the flight's own window shows, landing
+                // queue and all, so the list's order and its numbers agree
+                // with what tapping a row says.
+                let eta = EnrouteEstimator.shared.timeEnroute(
+                    for: flight,
+                    directNM: distance,
+                    arrival: field
+                )
                 inbound.append(Movement(flight: flight, distanceNM: distance, etaSeconds: eta))
             } else if departing {
                 outbound.append(Movement(flight: flight, distanceNM: distance, etaSeconds: nil))
