@@ -33,6 +33,11 @@ struct AirportPanel: View {
     /// one that does nothing.
     var onPlanFlight: ((Airport) -> Void)? = nil
 
+    /// Open this field's board in the Flight Center — arrivals, departures and
+    /// the apron side by side, the airlines here and the routes out. Nil
+    /// offers no row.
+    var onOpenBoard: ((Airport) -> Void)? = nil
+
     /// The flight this field was reached from, when it was reached from one.
     ///
     /// Opening a field replaces whatever sheet was up, so arriving here from an
@@ -169,6 +174,18 @@ struct AirportPanel: View {
                 }
 
                 PanelDivider()
+
+                if let onOpenBoard = onOpenBoard {
+                    PanelActionRow(
+                        title: "Flight Center board",
+                        symbol: MapPanelKind.flightCenter.symbol,
+                        detail: "Arrivals, departures and the apron, with the airlines and routes here."
+                    ) {
+                        onOpenBoard(airport)
+                    }
+
+                    PanelDivider()
+                }
 
                 // One pinned field at a time, so this is a toggle rather than a
                 // list to manage: pinning a second field replaces the first,

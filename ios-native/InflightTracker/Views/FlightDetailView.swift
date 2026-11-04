@@ -169,6 +169,11 @@ struct FlightDetailView: View {
     /// set of reports rather than two downloads of the same three.
     var weather: WeatherModel? = nil
 
+    /// Opens the Flight Center on this flight's airline or its route — the web
+    /// flight page's "Airline fleet" and "Flights on this route". Nil offers
+    /// neither.
+    var onOpenFlightCenter: ((FlightCenterPage) -> Void)? = nil
+
     /// Where the window was opened from, and how to get back to it.
     struct Origin {
         /// What to call it on the row — an ICAO, normally.
@@ -1194,6 +1199,14 @@ struct FlightDetailView: View {
                             theme: theme,
                             onOpen: { ad in viewingPartner = ad }
                         )
+
+                        // The whole fleet this aeroplane is part of, and
+                        // everything else on its route, a tap away in the
+                        // Flight Center. Not on a real aeroplane, which is in
+                        // nobody's fleet on this server.
+                        if !isRealWorld, let onOpenFlightCenter {
+                            FlightCenterLinks(flight: flight, theme: theme, onOpen: onOpenFlightCenter)
+                        }
                     }
 
                     // Not under the detail look, which carries all four of

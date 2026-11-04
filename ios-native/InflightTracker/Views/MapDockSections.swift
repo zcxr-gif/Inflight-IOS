@@ -212,7 +212,10 @@ struct MapDockSections: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 22) {
-            quickRow
+            VStack(spacing: 8) {
+                flightCenterCard
+                quickRow
+            }
 
             if !digest.friends.isEmpty {
                 section("Friends Flying", symbol: "person.2.fill") {
@@ -271,6 +274,50 @@ struct MapDockSections: View {
             quickTile("Stats", symbol: "chart.bar.fill") { onOpenStats() }
             quickTile("Plans", symbol: "calendar") { onPanel(.plans) }
         }
+    }
+
+    /// The way into the Flight Center, at the head of the lists: the server
+    /// by airline, by field and by route. A card of its own rather than a
+    /// fourth tile, because it is a place rather than a shortcut — and the
+    /// lists under it are a taste of what is in there.
+    private var flightCenterCard: some View {
+        Button {
+            FlightCenterNavigator.shared.open(.home)
+            onPanel(.flightCenter)
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: MapPanelKind.flightCenter.symbol)
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundStyle(theme.onAccent)
+                    .frame(width: 40, height: 40)
+                    .background {
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .fill(theme.accent)
+                    }
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Flight Center")
+                        .font(.system(size: 16, weight: .bold, design: .rounded))
+                        .foregroundStyle(theme.textPrimary)
+
+                    Text("Airlines, airports and routes — the whole server")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(theme.textSecondary)
+                        .flightInfoLine(minimumScale: 0.8)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(theme.textDim)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .background(card)
+            .contentShape(RoundedRectangle(cornerRadius: theme.radiusMedium, style: .continuous))
+        }
+        .buttonStyle(.pressable(scale: 0.98))
+        .accessibilityHint("Opens the Flight Center")
     }
 
     private func quickTile(_ title: String, symbol: String, action: @escaping () -> Void) -> some View {

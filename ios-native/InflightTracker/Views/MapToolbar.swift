@@ -31,6 +31,14 @@ enum MapPanelKind: String, Identifiable, CaseIterable {
     /// link.
     case plans
 
+    /// The Flight Center: the server by airline, by field and by route — the
+    /// web tracker's Flight Center, in the app.
+    ///
+    /// Off the bar, like stats and plans: it is a place you go to look
+    /// something up rather than one you keep open over the traffic. Reached
+    /// from the card at the top of the dock's lists, and from a deep link.
+    case flightCenter
+
     var id: String { rawValue }
 
     /// The stop the dock's sheet opens to for this panel, from the bar.
@@ -56,6 +64,7 @@ enum MapPanelKind: String, Identifiable, CaseIterable {
         case .weather: return "Weather"
         case .settings: return "Settings"
         case .plans: return "Flight plans"
+        case .flightCenter: return "Flight Center"
         }
     }
 
@@ -84,6 +93,7 @@ enum MapPanelKind: String, Identifiable, CaseIterable {
         case .weather: return "cloud.sun.fill"
         case .settings: return "gearshape.fill"
         case .plans: return "calendar"
+        case .flightCenter: return "airplane.circle.fill"
         }
     }
 }

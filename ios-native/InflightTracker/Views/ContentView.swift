@@ -1315,7 +1315,8 @@ struct ContentView: View {
                     onReplay: { track in startReplay(of: selected.id, track: track) },
                     onSelectAirport: { field in openAirport(field, from: selected) },
                     origin: flightReturn(for: selected),
-                    weather: weather
+                    weather: weather,
+                    onOpenFlightCenter: { page in openFlightCenter(page) }
                 )
                     // Same as the sheet's: a different aircraft resets the
                     // window's own state without the window going anywhere.
@@ -1684,7 +1685,8 @@ struct ContentView: View {
                     onReplay: { track in startReplay(of: selected.id, track: track) },
                     onSelectAirport: { field in openAirport(field, from: selected) },
                     origin: flightReturn(for: selected),
-                    weather: weather
+                    weather: weather,
+                    onOpenFlightCenter: { page in openFlightCenter(page) }
                 )
                     // No `.id`: tapping another aeroplane changes the window
                     // rather than replacing it — see
@@ -1752,6 +1754,9 @@ struct ContentView: View {
                 },
                 onPlanFlight: { field in
                     openPlans(from: field)
+                },
+                onOpenBoard: { field in
+                    openFlightCenter(.airport(field.icao))
                 },
                 origin: airportReturn,
                 presentation: presentation
@@ -1825,6 +1830,27 @@ struct ContentView: View {
             // on the case would change the sheet's id and replace the window
             // instead of redrawing it.
             FlightPlansPanel(startingFrom: planningFrom)
+
+        case .flightCenter:
+            FlightCenterPanel(
+                // The dock is left at the stop it was on: it gives way to the
+                // flight window, and closing the window brings the Flight
+                // Center back where it was — the way back, for free.
+                onOpenFlight: { flight in
+                    openFlight(flight.id)
+                },
+                onOpenAirport: { airport in
+                    openAirport(airport)
+                },
+                onOpenProfile: {
+                    if let handle = profiles.profile?.handle, !handle.isEmpty {
+                        viewingProfile = .handle(handle)
+                    } else {
+                        isShowingAccount = true
+                    }
+                }
+            )
+            .environmentObject(feed)
         }
     }
 
@@ -1977,6 +2003,21 @@ struct ContentView: View {
             panelKind = kind
             sheet = .panel
         }
+    }
+
+    /// Opens the Flight Center on one page, from a window somewhere else —
+    /// a flight's fleet or route, a field's board.
+    ///
+    /// The window it is opened from is shut first, so the Flight Center opens
+    /// in the dock the way it does from the dock's own card rather than as a
+    /// second window over the first.
+    private func openFlightCenter(_ page: FlightCenterPage) {
+        FlightCenterNavigator.shared.open(page)
+        withAnimation(reduceMotion ? nil : Motion.chrome) {
+            sheet = nil
+            selection = nil
+        }
+        openPanel(.flightCenter)
     }
 
     /// Whether the dock is what stands on the bottom of the map — the same
